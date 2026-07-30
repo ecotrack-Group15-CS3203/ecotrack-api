@@ -1,0 +1,88 @@
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UploadedFiles,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { incidentImageUploadOptions } from '../../common/config/upload.config';
+import { CurrentMembership } from '../../common/decorators/current-membership.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
+import { MembershipRole } from '../../common/enums/membership-role.enum';
+import { VerificationStatus } from '../../common/enums/incident.enum';
+import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
+import { CreateIncidentDto } from './dto/create-incident.dto';
+import { OrganisationMember } from '../organisations/entities/organisation-member.entity';
+import { IncidentsService } from './incidents.service';
+
+@Controller('organisations/:organisationId/incidents')
+export class IncidentsController {
+  constructor(private readonly incidentsService: IncidentsService) {}
+
+  @Roles(MembershipRole.COMMUNITY_USER)
+  @Post()
+  @UseInterceptors(FilesInterceptor('images', 5, incidentImageUploadOptions))
+  create(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Body() dto: CreateIncidentDto,
+    @UploadedFiles() images: Express.Multer.File[],
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const imageUrls = (images ?? []).map(
+      (file) => `/uploads/incidents/${file.filename}`,
+    );
+    return this.incidentsService.create(
+      organisationId,
+      user.id,
+      dto,
+      imageUrls,
+    );
+  }
+
+  @Roles(MembershipRole.COMMUNITY_USER)
+  @Get('mine')
+  findMine(@CurrentUser() user: AuthenticatedUser) {
+    return this.incidentsService.findMyReports(user.id);
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+  @Get()
+  findAll(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Query('status') status?: VerificationStatus,
+  ) {
+    return this.incidentsService.listForOrg(organisationId, status);
+  }
+
+  @Roles(
+    MembershipRole.COMMUNITY_USER,
+    MembershipRole.ORG_ADMIN,
+    PLATFORM_ADMIN,
+  )
+  @Get(':incidentId')
+  async findOne(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('incidentId', ParseUUIDPipe) incidentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentMembership() membership?: OrganisationMember,
+  ) {
+    const incident = await this.incidentsService.findScoped(
+      organisationId,
+      incidentId,
+    );
+    const isOwner = incident.reportedByUserId === user.id;
+    const isOrgAdmin = membership?.role === MembershipRole.ORG_ADMIN;
+    if (!isOwner && !isOrgAdmin && !user.isPlatformAdmin) {
+      throw new ForbiddenException();
+    }
+    return incident;
+  }
+}
