@@ -15,6 +15,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { incidentImageUploadOptions } from '../../common/config/upload.config';
 import { CurrentMembership } from '../../common/decorators/current-membership.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -29,11 +30,14 @@ import { RejectIncidentDto } from './dto/reject-incident.dto';
 import { OrganisationMember } from '../organisations/entities/organisation-member.entity';
 import { IncidentsService } from './incidents.service';
 
+@ApiTags('incidents')
+@ApiBearerAuth()
 @Controller('organisations/:organisationId/incidents')
 export class IncidentsController {
   constructor(private readonly incidentsService: IncidentsService) {}
 
   @Roles(MembershipRole.COMMUNITY_USER)
+  @ApiConsumes('multipart/form-data')
   @Post()
   @UseInterceptors(FilesInterceptor('images', 5, incidentImageUploadOptions))
   create(

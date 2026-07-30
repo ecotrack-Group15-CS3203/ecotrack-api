@@ -10,6 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MembershipRole } from '../../common/enums/membership-role.enum';
@@ -22,6 +23,8 @@ import { InvitationsService } from './invitations.service';
 import { OrganisationMembersService } from './organisation-members.service';
 import { OrganisationsService } from './organisations.service';
 
+@ApiTags('organisations')
+@ApiBearerAuth()
 @Controller('organisations')
 export class OrganisationsController {
   constructor(

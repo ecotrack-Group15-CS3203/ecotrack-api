@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
@@ -20,6 +21,8 @@ import { MarkFinalDto } from './dto/mark-final.dto';
 import { ReorderWorkflowStagesDto } from './dto/reorder-workflow-stages.dto';
 import { WorkflowStagesService } from './workflow-stages.service';
 
+@ApiTags('workflow-stages')
+@ApiBearerAuth()
 @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
 @Controller('organisations/:organisationId/workflow-stages')
 export class WorkflowStagesController {

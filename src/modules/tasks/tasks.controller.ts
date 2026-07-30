@@ -14,6 +14,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { taskPhotoUploadOptions } from '../../common/config/upload.config';
 import { CurrentMembership } from '../../common/decorators/current-membership.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -30,6 +31,8 @@ import { RespondAssignmentDto } from './dto/respond-assignment.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { TasksService } from './tasks.service';
 
+@ApiTags('tasks')
+@ApiBearerAuth()
 @Controller('organisations/:organisationId/tasks')
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
@@ -134,6 +137,7 @@ export class TasksController {
   }
 
   @Roles(MembershipRole.VOLUNTEER)
+  @ApiConsumes('multipart/form-data')
   @Post(':taskId/progress/photos')
   @UseInterceptors(FilesInterceptor('photos', 5, taskPhotoUploadOptions))
   addPhotos(
