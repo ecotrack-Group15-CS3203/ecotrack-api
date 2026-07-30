@@ -1,10 +1,14 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UploadedFiles,
@@ -20,6 +24,8 @@ import { MembershipRole } from '../../common/enums/membership-role.enum';
 import { VerificationStatus } from '../../common/enums/incident.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { CreateIncidentDto } from './dto/create-incident.dto';
+import { MarkDuplicateDto } from './dto/mark-duplicate.dto';
+import { RejectIncidentDto } from './dto/reject-incident.dto';
 import { OrganisationMember } from '../organisations/entities/organisation-member.entity';
 import { IncidentsService } from './incidents.service';
 
@@ -84,5 +90,53 @@ export class IncidentsController {
       throw new ForbiddenException();
     }
     return incident;
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @Patch(':incidentId/approve')
+  approve(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('incidentId', ParseUUIDPipe) incidentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.incidentsService.approve(organisationId, incidentId, user.id);
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @Patch(':incidentId/reject')
+  reject(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('incidentId', ParseUUIDPipe) incidentId: string,
+    @Body() dto: RejectIncidentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.incidentsService.reject(
+      organisationId,
+      incidentId,
+      user.id,
+      dto.reason,
+    );
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @Patch(':incidentId/duplicate')
+  markDuplicate(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('incidentId', ParseUUIDPipe) incidentId: string,
+    @Body() dto: MarkDuplicateDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    if (dto.duplicateOfId === incidentId) {
+      throw new BadRequestException('An incident cannot duplicate itself');
+    }
+    return this.incidentsService.markDuplicate(
+      organisationId,
+      incidentId,
+      user.id,
+      dto.duplicateOfId,
+    );
   }
 }
