@@ -1,0 +1,21 @@
+import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
+import { MembershipRole } from '../../common/enums/membership-role.enum';
+import { DashboardService } from './dashboard.service';
+
+@Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+@Controller('organisations/:organisationId/dashboard')
+export class DashboardController {
+  constructor(private readonly dashboardService: DashboardService) {}
+
+  @Get('stats')
+  getStats(@Param('organisationId', ParseUUIDPipe) organisationId: string) {
+    return this.dashboardService.getOrgStats(organisationId);
+  }
+
+  @Get('map')
+  getMap(@Param('organisationId', ParseUUIDPipe) organisationId: string) {
+    return this.dashboardService.getIncidentMap(organisationId);
+  }
+}
