@@ -132,6 +132,10 @@ export class IncidentsService {
         organisationId,
         incident.currentStage,
       );
+      // Setting only currentStageId is not enough: TypeORM re-derives the FK
+      // from the still-loaded `currentStage` relation object on save, so the
+      // relation itself must be updated too.
+      incident.currentStage = nextStage;
       incident.currentStageId = nextStage.id;
     }
 
