@@ -238,4 +238,100 @@ export class TasksService {
     await this.assignmentsRepository.save(assignment);
     return this.findById(taskId);
   }
+
+  private async assertAcceptedAssignee(
+    taskId: string,
+    volunteerUserId: string,
+  ): Promise<void> {
+    const assignment = await this.findOwnAssignment(taskId, volunteerUserId);
+    if (assignment.status !== AssignmentStatus.ACCEPTED) {
+      throw new ForbiddenException(
+        'You must accept this task before updating its progress',
+      );
+    }
+  }
+
+  async markInProgress(taskId: string, volunteerUserId: string): Promise<Task> {
+    await this.assertAcceptedAssignee(taskId, volunteerUserId);
+    const task = await this.findById(taskId);
+    task.status = TaskStatus.IN_PROGRESS;
+    await this.tasksRepository.save(task);
+
+    await this.notificationsService.create({
+      userId: task.createdByUserId,
+      organisationId: task.organisationId,
+      type: NotificationType.TASK_STATUS_CHANGED,
+      title: 'Cleanup task in progress',
+      message: `"${task.description}" is now in progress.`,
+      relatedEntityType: 'task',
+      relatedEntityId: task.id,
+    });
+
+    return this.findById(taskId);
+  }
+
+  async addNote(
+    taskId: string,
+    volunteerUserId: string,
+    note: string,
+  ): Promise<Task> {
+    await this.assertAcceptedAssignee(taskId, volunteerUserId);
+    await this.notesRepository.save(
+      this.notesRepository.create({
+        taskId,
+        authorUserId: volunteerUserId,
+        note,
+      }),
+    );
+    return this.findById(taskId);
+  }
+
+  async addPhotos(
+    taskId: string,
+    volunteerUserId: string,
+    photoUrls: string[],
+  ): Promise<Task> {
+    await this.assertAcceptedAssignee(taskId, volunteerUserId);
+    if (photoUrls.length === 0) {
+      throw new BadRequestException('At least one photo is required');
+    }
+    await this.photosRepository.save(
+      photoUrls.map((url) =>
+        this.photosRepository.create({
+          taskId,
+          url,
+          uploadedByUserId: volunteerUserId,
+        }),
+      ),
+    );
+    return this.findById(taskId);
+  }
+
+  async markCompleted(taskId: string, volunteerUserId: string): Promise<Task> {
+    await this.assertAcceptedAssignee(taskId, volunteerUserId);
+    const task = await this.findById(taskId);
+    task.status = TaskStatus.COMPLETED;
+    await this.tasksRepository.save(task);
+
+    await Promise.all([
+      this.auditLogService.record({
+        organisationId: task.organisationId,
+        actingUserId: volunteerUserId,
+        action: 'task.completed',
+        entityType: 'task',
+        entityId: task.id,
+      }),
+      this.notificationsService.create({
+        userId: task.createdByUserId,
+        organisationId: task.organisationId,
+        type: NotificationType.TASK_COMPLETED,
+        title: 'Cleanup task completed',
+        message: `"${task.description}" has been marked complete.`,
+        relatedEntityType: 'task',
+        relatedEntityId: task.id,
+      }),
+    ]);
+
+    return this.findById(taskId);
+  }
 }

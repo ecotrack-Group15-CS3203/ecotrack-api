@@ -2,10 +2,15 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { mkdirSync } from 'fs';
 import { AppModule } from './app.module';
-import { INCIDENT_IMAGES_DIR, UPLOADS_ROOT } from './common/config/upload.config';
+import {
+  INCIDENT_IMAGES_DIR,
+  TASK_PHOTOS_DIR,
+  UPLOADS_ROOT,
+} from './common/config/upload.config';
 
 async function bootstrap() {
   mkdirSync(INCIDENT_IMAGES_DIR, { recursive: true });
+  mkdirSync(TASK_PHOTOS_DIR, { recursive: true });
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableCors();

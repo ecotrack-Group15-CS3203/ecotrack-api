@@ -10,7 +10,11 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { taskPhotoUploadOptions } from '../../common/config/upload.config';
 import { CurrentMembership } from '../../common/decorators/current-membership.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -19,6 +23,7 @@ import { MembershipRole } from '../../common/enums/membership-role.enum';
 import { TaskStatus } from '../../common/enums/task.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { OrganisationMember } from '../organisations/entities/organisation-member.entity';
+import { AddTaskNoteDto } from './dto/add-task-note.dto';
 import { AssignVolunteersDto } from './dto/assign-volunteers.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { RespondAssignmentDto } from './dto/respond-assignment.dto';
@@ -106,5 +111,49 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.tasksService.respondToAssignment(taskId, user.id, dto.accept);
+  }
+
+  @Roles(MembershipRole.VOLUNTEER)
+  @HttpCode(HttpStatus.OK)
+  @Patch(':taskId/progress/start')
+  startProgress(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.markInProgress(taskId, user.id);
+  }
+
+  @Roles(MembershipRole.VOLUNTEER)
+  @Post(':taskId/progress/notes')
+  addNote(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: AddTaskNoteDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.addNote(taskId, user.id, dto.note);
+  }
+
+  @Roles(MembershipRole.VOLUNTEER)
+  @Post(':taskId/progress/photos')
+  @UseInterceptors(FilesInterceptor('photos', 5, taskPhotoUploadOptions))
+  addPhotos(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @UploadedFiles() photos: Express.Multer.File[],
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const photoUrls = (photos ?? []).map(
+      (file) => `/uploads/tasks/${file.filename}`,
+    );
+    return this.tasksService.addPhotos(taskId, user.id, photoUrls);
+  }
+
+  @Roles(MembershipRole.VOLUNTEER)
+  @HttpCode(HttpStatus.OK)
+  @Patch(':taskId/progress/complete')
+  complete(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.markCompleted(taskId, user.id);
   }
 }
