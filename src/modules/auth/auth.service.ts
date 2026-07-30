@@ -130,6 +130,27 @@ export class AuthService {
     return this.buildAuthResponse(user.id, user.email, user.isPlatformAdmin);
   }
 
+  async getProfile(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+    const memberships =
+      await this.membersService.findMembershipsForUser(userId);
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      isPlatformAdmin: user.isPlatformAdmin,
+      memberships: memberships.map((m) => ({
+        organisationId: m.organisationId,
+        organisationName: m.organisation.name,
+        organisationIsActive: m.organisation.isActive,
+        role: m.role,
+      })),
+    };
+  }
+
   private buildAuthResponse(
     userId: string,
     email: string,

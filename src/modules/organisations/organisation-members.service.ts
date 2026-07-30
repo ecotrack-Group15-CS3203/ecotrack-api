@@ -21,6 +21,14 @@ export class OrganisationMembersService {
     });
   }
 
+  findMembershipsForUser(userId: string): Promise<OrganisationMember[]> {
+    return this.membersRepository.find({
+      where: { userId, isActive: true },
+      relations: { organisation: true },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
   createMembership(data: {
     organisationId: string;
     userId: string;
