@@ -1,0 +1,29 @@
+# compiled output
+/dist
+/node_modules
+
+# user-uploaded files (served from disk in dev; use object storage in prod)
+/uploads
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# env
+.env
+.env.local
+
+# OS
+.DS_Store
+
+# tests
+/coverage
+
+# IDEs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea
