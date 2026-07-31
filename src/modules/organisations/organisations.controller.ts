@@ -105,4 +105,25 @@ export class OrganisationsController {
       invitedByUserId: user.id,
     });
   }
+
+  @Roles(PLATFORM_ADMIN)
+  @Get(':organisationId/admin-invitations')
+  listAdminInvitations(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+  ) {
+    return this.invitationsService.listForOrganisation(
+      organisationId,
+      MembershipRole.ORG_ADMIN,
+    );
+  }
+
+  @Roles(PLATFORM_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @Post(':organisationId/admin-invitations/:invitationId/resend')
+  resendAdminInvitation(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
+  ) {
+    return this.invitationsService.resend(organisationId, invitationId);
+  }
 }
