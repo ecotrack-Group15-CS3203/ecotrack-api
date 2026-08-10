@@ -1,98 +1,138 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { VerificationStatus } from '../../common/enums/incident.enum';
-import { MembershipRole } from '../../common/enums/membership-role.enum';
+import { and, count, eq, gte, sql } from 'drizzle-orm';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { TaskStatus } from '../../common/enums/task.enum';
-import { Incident } from '../incidents/entities/incident.entity';
-import { OrganisationMember } from '../organisations/entities/organisation-member.entity';
-import { Task } from '../tasks/entities/task.entity';
+import {
+  incidents,
+  organisations,
+  tasks,
+  users,
+  workflowStages,
+} from '../../database/schema';
+import { TenantDbService } from '../../database/tenant-db.service';
 
 @Injectable()
 export class DashboardService {
-  constructor(
-    @InjectRepository(Incident)
-    private readonly incidentsRepository: Repository<Incident>,
-    @InjectRepository(Task)
-    private readonly tasksRepository: Repository<Task>,
-    @InjectRepository(OrganisationMember)
-    private readonly membersRepository: Repository<OrganisationMember>,
-  ) {}
+  constructor(private readonly tenantDb: TenantDbService) {}
 
+  /**
+   * Matches SRS 3.1.17's summary cards: claimed this month, awaiting claim within the
+   * org's service area, active tasks, volunteers, plus category breakdown and a
+   * resolved count. "pendingIncidents"/"verifiedIncidents" from the old model are
+   * gone — every claimed incident is verified by definition now (claim = auto-verify,
+   * SRS 3.1.5), so that distinction no longer exists.
+   */
   async getOrgStats(organisationId: string) {
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
     const [
-      totalIncidents,
-      pendingIncidents,
-      verifiedIncidents,
-      resolvedIncidents,
-      activeVolunteers,
-      completedCleanupTasks,
+      [{ totalIncidents }],
+      [{ claimedThisMonth }],
+      [{ resolvedIncidents }],
+      [{ activeVolunteers }],
+      [{ completedCleanupTasks }],
       categoryBreakdown,
+      org,
     ] = await Promise.all([
-      this.incidentsRepository.count({ where: { organisationId } }),
-      this.incidentsRepository.count({
-        where: {
-          organisationId,
-          verificationStatus: VerificationStatus.PENDING,
-        },
+      this.tenantDb.db
+        .select({ totalIncidents: count() })
+        .from(incidents)
+        .where(eq(incidents.organisationId, organisationId)),
+      this.tenantDb.db
+        .select({ claimedThisMonth: count() })
+        .from(incidents)
+        .where(
+          and(
+            eq(incidents.organisationId, organisationId),
+            gte(incidents.claimedAt, startOfMonth),
+          ),
+        ),
+      this.tenantDb.db
+        .select({ resolvedIncidents: count() })
+        .from(incidents)
+        .innerJoin(
+          workflowStages,
+          eq(incidents.currentStageId, workflowStages.id),
+        )
+        .where(
+          and(
+            eq(incidents.organisationId, organisationId),
+            eq(workflowStages.isFinal, true),
+          ),
+        ),
+      this.tenantDb.db
+        .select({ activeVolunteers: count() })
+        .from(users)
+        .where(
+          and(
+            eq(users.organisationId, organisationId),
+            eq(users.role, UserRole.VOLUNTEER),
+            eq(users.isActive, true),
+          ),
+        ),
+      this.tenantDb.db
+        .select({ completedCleanupTasks: count() })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.organisationId, organisationId),
+            eq(tasks.status, TaskStatus.COMPLETED),
+          ),
+        ),
+      this.tenantDb.db
+        .select({ category: incidents.category, count: count() })
+        .from(incidents)
+        .where(eq(incidents.organisationId, organisationId))
+        .groupBy(incidents.category),
+      this.tenantDb.db.query.organisations.findFirst({
+        where: eq(organisations.id, organisationId),
       }),
-      this.incidentsRepository.count({
-        where: {
-          organisationId,
-          verificationStatus: VerificationStatus.APPROVED,
-        },
-      }),
-      this.incidentsRepository
-        .createQueryBuilder('incident')
-        .innerJoin('incident.currentStage', 'stage')
-        .where('incident.organisationId = :organisationId', { organisationId })
-        .andWhere('stage.isFinal = true')
-        .getCount(),
-      this.membersRepository.count({
-        where: {
-          organisationId,
-          role: MembershipRole.VOLUNTEER,
-          isActive: true,
-        },
-      }),
-      this.tasksRepository.count({
-        where: { organisationId, status: TaskStatus.COMPLETED },
-      }),
-      this.incidentsRepository
-        .createQueryBuilder('incident')
-        .select('incident.category', 'category')
-        .addSelect('COUNT(*)', 'count')
-        .where('incident.organisationId = :organisationId', { organisationId })
-        .groupBy('incident.category')
-        .getRawMany<{ category: string; count: string }>(),
     ]);
+
+    let awaitingClaimInServiceArea = 0;
+    if (org?.serviceAreaCenter && org.serviceAreaRadiusKm) {
+      const [{ poolCount }] = (
+        await this.tenantDb.db.execute<{
+          [key: string]: unknown;
+          poolCount: number;
+        }>(sql`
+          SELECT count(*)::int AS "poolCount"
+          FROM incidents
+          WHERE organisation_id IS NULL
+            AND ST_DWithin(location, ${org.serviceAreaCenter}::geography, ${org.serviceAreaRadiusKm * 1000})
+        `)
+      ).rows;
+      awaitingClaimInServiceArea = poolCount;
+    }
 
     return {
       totalIncidents,
-      pendingIncidents,
-      verifiedIncidents,
+      claimedThisMonth,
+      awaitingClaimInServiceArea,
       resolvedIncidents,
       activeVolunteers,
       completedCleanupTasks,
       incidentsByCategory: categoryBreakdown.map((row) => ({
         category: row.category,
-        count: Number(row.count),
+        count: row.count,
       })),
     };
   }
 
-  async getIncidentMap(organisationId: string) {
-    return this.incidentsRepository.find({
-      where: { organisationId },
-      select: {
-        id: true,
-        title: true,
-        latitude: true,
-        longitude: true,
-        category: true,
-        severity: true,
-        verificationStatus: true,
-      },
-    });
+  getIncidentMap(organisationId: string) {
+    return this.tenantDb.db
+      .select({
+        id: incidents.id,
+        title: incidents.title,
+        category: incidents.category,
+        severity: incidents.severity,
+        verificationStatus: incidents.verificationStatus,
+        lat: sql<number>`ST_Y(${incidents.location}::geometry)`,
+        lng: sql<number>`ST_X(${incidents.location}::geometry)`,
+      })
+      .from(incidents)
+      .where(eq(incidents.organisationId, organisationId));
   }
 }

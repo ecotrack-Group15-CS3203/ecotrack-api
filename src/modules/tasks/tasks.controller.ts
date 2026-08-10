@@ -16,14 +16,12 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { taskPhotoUploadOptions } from '../../common/config/upload.config';
-import { CurrentMembership } from '../../common/decorators/current-membership.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
-import { MembershipRole } from '../../common/enums/membership-role.enum';
 import { TaskStatus } from '../../common/enums/task.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
-import { OrganisationMember } from '../organisations/entities/organisation-member.entity';
 import { AddTaskNoteDto } from './dto/add-task-note.dto';
 import { AssignVolunteersDto } from './dto/assign-volunteers.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -37,7 +35,7 @@ import { TasksService } from './tasks.service';
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
-  @Roles(MembershipRole.ORG_ADMIN)
+  @Roles(UserRole.ORG_ADMIN)
   @Post()
   create(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
@@ -47,7 +45,7 @@ export class TasksController {
     return this.tasksService.create(organisationId, user.id, dto);
   }
 
-  @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+  @Roles(UserRole.ORG_ADMIN, PLATFORM_ADMIN)
   @Get()
   findAll(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
@@ -56,22 +54,31 @@ export class TasksController {
     return this.tasksService.listForOrg(organisationId, status);
   }
 
-  @Roles(MembershipRole.VOLUNTEER)
+  @Roles(UserRole.VOLUNTEER)
   @Get('mine')
-  findMine(@CurrentUser() user: AuthenticatedUser) {
-    return this.tasksService.listAssignedToVolunteer(user.id);
+  findMine(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('view')
+    view?: 'assigned' | 'in_progress' | 'completed' | 'declined' | 'upcoming',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.tasksService.listAssignedToVolunteer(user.id, {
+      view,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
-  @Roles(MembershipRole.ORG_ADMIN, MembershipRole.VOLUNTEER, PLATFORM_ADMIN)
+  @Roles(UserRole.ORG_ADMIN, UserRole.VOLUNTEER, PLATFORM_ADMIN)
   @Get(':taskId')
   async findOne(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @CurrentUser() user: AuthenticatedUser,
-    @CurrentMembership() membership?: OrganisationMember,
   ) {
     const task = await this.tasksService.findScoped(organisationId, taskId);
-    const isOrgAdmin = membership?.role === MembershipRole.ORG_ADMIN;
+    const isOrgAdmin = user.role === UserRole.ORG_ADMIN;
     const isAssignedVolunteer = task.assignments.some(
       (a) => a.volunteerUserId === user.id,
     );
@@ -81,7 +88,7 @@ export class TasksController {
     return task;
   }
 
-  @Roles(MembershipRole.ORG_ADMIN)
+  @Roles(UserRole.ORG_ADMIN)
   @Patch(':taskId')
   update(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
@@ -91,7 +98,7 @@ export class TasksController {
     return this.tasksService.update(organisationId, taskId, dto);
   }
 
-  @Roles(MembershipRole.ORG_ADMIN)
+  @Roles(UserRole.ORG_ADMIN)
   @Post(':taskId/assignments')
   assignVolunteers(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
@@ -105,42 +112,52 @@ export class TasksController {
     );
   }
 
-  @Roles(MembershipRole.VOLUNTEER)
+  @Roles(UserRole.VOLUNTEER)
   @HttpCode(HttpStatus.OK)
   @Patch(':taskId/assignments/respond')
   respondToAssignment(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @Body() dto: RespondAssignmentDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.tasksService.respondToAssignment(taskId, user.id, dto.accept);
+    return this.tasksService.respondToAssignment(
+      organisationId,
+      taskId,
+      user.id,
+      dto.accept,
+      dto.reason,
+    );
   }
 
-  @Roles(MembershipRole.VOLUNTEER)
+  @Roles(UserRole.VOLUNTEER)
   @HttpCode(HttpStatus.OK)
   @Patch(':taskId/progress/start')
   startProgress(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.tasksService.markInProgress(taskId, user.id);
+    return this.tasksService.markInProgress(organisationId, taskId, user.id);
   }
 
-  @Roles(MembershipRole.VOLUNTEER)
+  @Roles(UserRole.VOLUNTEER)
   @Post(':taskId/progress/notes')
   addNote(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @Body() dto: AddTaskNoteDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.tasksService.addNote(taskId, user.id, dto.note);
+    return this.tasksService.addNote(organisationId, taskId, user.id, dto.note);
   }
 
-  @Roles(MembershipRole.VOLUNTEER)
+  @Roles(UserRole.VOLUNTEER)
   @ApiConsumes('multipart/form-data')
   @Post(':taskId/progress/photos')
   @UseInterceptors(FilesInterceptor('photos', 5, taskPhotoUploadOptions))
   addPhotos(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @UploadedFiles() photos: Express.Multer.File[],
     @CurrentUser() user: AuthenticatedUser,
@@ -148,16 +165,22 @@ export class TasksController {
     const photoUrls = (photos ?? []).map(
       (file) => `/uploads/tasks/${file.filename}`,
     );
-    return this.tasksService.addPhotos(taskId, user.id, photoUrls);
+    return this.tasksService.addPhotos(
+      organisationId,
+      taskId,
+      user.id,
+      photoUrls,
+    );
   }
 
-  @Roles(MembershipRole.VOLUNTEER)
+  @Roles(UserRole.VOLUNTEER)
   @HttpCode(HttpStatus.OK)
   @Patch(':taskId/progress/complete')
   complete(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.tasksService.markCompleted(taskId, user.id);
+    return this.tasksService.markCompleted(organisationId, taskId, user.id);
   }
 }

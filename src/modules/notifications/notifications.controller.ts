@@ -24,6 +24,12 @@ export class NotificationsController {
   }
 
   @HttpCode(HttpStatus.OK)
+  @Patch('read-all')
+  markAllRead(@CurrentUser() user: AuthenticatedUser) {
+    return this.notificationsService.markAllRead(user.id);
+  }
+
+  @HttpCode(HttpStatus.OK)
   @Patch(':notificationId/read')
   markRead(
     @Param('notificationId', ParseUUIDPipe) notificationId: string,

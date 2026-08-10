@@ -22,8 +22,9 @@ async function bootstrap() {
     .setDescription(
       'REST API for the EcoTrack multi-tenant environmental incident monitoring ' +
         'and cleanup coordination platform. Organisation-scoped routes are nested ' +
-        'under /organisations/{organisationId}/... — call POST /auth/login first ' +
-        'and use "Authorize" below to set the bearer token.',
+        'under /organisations/{organisationId}/... — authenticate via WSO2 Asgardeo ' +
+        '(OIDC) in the client app and use "Authorize" below to set the resulting ' +
+        'bearer access token.',
     )
     .setVersion('1.0')
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })

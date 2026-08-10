@@ -1,34 +1,55 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { asc, eq } from 'drizzle-orm';
+import { DRIZZLE_DB } from '../../database/drizzle.provider';
+import type { DrizzleDb } from '../../database/drizzle.provider';
+import { organisations } from '../../database/schema';
+import { toGeographyPoint } from '../../database/schema/columns.helpers';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { AuditLogService } from '../audit/audit-log.service';
-import { MembershipRole } from '../../common/enums/membership-role.enum';
 import { UsersService } from '../users/users.service';
 import { WorkflowStagesService } from '../workflow/workflow-stages.service';
-import { Invitation } from './entities/invitation.entity';
-import { Organisation } from './entities/organisation.entity';
-import { InvitationsService } from './invitations.service';
-import { OrganisationMembersService } from './organisation-members.service';
+import { InvitationRow, InvitationsService } from './invitations.service';
 
+export type OrganisationRow = typeof organisations.$inferSelect;
+
+interface ServiceAreaInput {
+  center: { lat: number; lng: number };
+  radiusKm: number;
+}
+
+/**
+ * Uses the pool-wide DRIZZLE_DB throughout, not the tenant-scoped connection:
+ * `organisations` is deliberately not RLS-protected (SRS 3.1.19 — tenant-agnostic,
+ * readable by any authenticated user for directory/search purposes).
+ */
 @Injectable()
 export class OrganisationsService {
   constructor(
-    @InjectRepository(Organisation)
-    private readonly organisationsRepository: Repository<Organisation>,
+    @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     private readonly workflowStagesService: WorkflowStagesService,
     private readonly auditLogService: AuditLogService,
     private readonly usersService: UsersService,
-    private readonly membersService: OrganisationMembersService,
     private readonly invitationsService: InvitationsService,
   ) {}
 
-  findAll(): Promise<Organisation[]> {
-    return this.organisationsRepository.find({ order: { name: 'ASC' } });
+  findAll(): Promise<OrganisationRow[]> {
+    return this.db.query.organisations.findMany({
+      orderBy: asc(organisations.name),
+    });
   }
 
-  async findById(id: string): Promise<Organisation> {
-    const organisation = await this.organisationsRepository.findOne({
-      where: { id },
+  async listPublic(): Promise<{ id: string; name: string }[]> {
+    const rows = await this.db.query.organisations.findMany({
+      where: eq(organisations.isActive, true),
+      orderBy: asc(organisations.name),
+      columns: { id: true, name: true },
+    });
+    return rows;
+  }
+
+  async findById(id: string): Promise<OrganisationRow> {
+    const organisation = await this.db.query.organisations.findFirst({
+      where: eq(organisations.id, id),
     });
     if (!organisation) {
       throw new NotFoundException('Organisation not found');
@@ -37,48 +58,63 @@ export class OrganisationsService {
   }
 
   async create(
-    data: { name: string; description?: string; initialAdminEmail: string },
+    data: {
+      name: string;
+      description?: string;
+      contactEmail: string;
+      initialAdminEmail: string;
+      serviceArea: ServiceAreaInput;
+    },
     actingUserId: string,
   ): Promise<{
-    organisation: Organisation;
-    adminInvitation: Invitation | null;
+    organisation: OrganisationRow;
+    adminInvitation: InvitationRow | null;
     adminAlreadyExisted: boolean;
   }> {
-    const organisation = this.organisationsRepository.create({
-      name: data.name,
-      description: data.description ?? null,
-    });
-    const saved = await this.organisationsRepository.save(organisation);
-    await this.workflowStagesService.seedDefaultStages(saved.id);
+    const [organisation] = await this.db
+      .insert(organisations)
+      .values({
+        name: data.name,
+        description: data.description ?? null,
+        contactEmail: data.contactEmail,
+        serviceAreaCenter: toGeographyPoint(
+          data.serviceArea.center.lat,
+          data.serviceArea.center.lng,
+        ),
+        serviceAreaRadiusKm: data.serviceArea.radiusKm,
+      })
+      .returning();
+
+    await this.workflowStagesService.seedDefaultStages(organisation.id);
     await this.auditLogService.record({
-      organisationId: saved.id,
+      organisationId: organisation.id,
       actingUserId,
       action: 'organisation.created',
       entityType: 'organisation',
-      entityId: saved.id,
+      entityId: organisation.id,
     });
 
     const existingUser = await this.usersService.findByEmail(
       data.initialAdminEmail,
     );
-    let adminInvitation: Invitation | null = null;
+    let adminInvitation: InvitationRow | null = null;
     if (existingUser) {
-      await this.membersService.createMembership({
-        organisationId: saved.id,
-        userId: existingUser.id,
-        role: MembershipRole.ORG_ADMIN,
-      });
+      await this.usersService.setMembership(
+        existingUser.id,
+        organisation.id,
+        UserRole.ORG_ADMIN,
+      );
     } else {
       adminInvitation = await this.invitationsService.create({
-        organisationId: saved.id,
+        organisationId: organisation.id,
         email: data.initialAdminEmail,
-        role: MembershipRole.ORG_ADMIN,
+        role: UserRole.ORG_ADMIN,
         invitedByUserId: actingUserId,
       });
     }
 
     return {
-      organisation: saved,
+      organisation,
       adminInvitation,
       adminAlreadyExisted: !!existingUser,
     };
@@ -86,23 +122,49 @@ export class OrganisationsService {
 
   async updateProfile(
     id: string,
-    data: { name?: string; description?: string },
-  ): Promise<Organisation> {
-    const organisation = await this.findById(id);
-    if (data.name !== undefined) organisation.name = data.name;
-    if (data.description !== undefined)
-      organisation.description = data.description;
-    return this.organisationsRepository.save(organisation);
+    data: {
+      name?: string;
+      description?: string;
+      contactEmail?: string;
+      serviceArea?: ServiceAreaInput;
+    },
+  ): Promise<OrganisationRow> {
+    await this.findById(id);
+    const [updated] = await this.db
+      .update(organisations)
+      .set({
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.description !== undefined && {
+          description: data.description,
+        }),
+        ...(data.contactEmail !== undefined && {
+          contactEmail: data.contactEmail,
+        }),
+        ...(data.serviceArea !== undefined && {
+          serviceAreaCenter: toGeographyPoint(
+            data.serviceArea.center.lat,
+            data.serviceArea.center.lng,
+          ),
+          serviceAreaRadiusKm: data.serviceArea.radiusKm,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(organisations.id, id))
+      .returning();
+    return updated;
   }
 
   async setActive(
     id: string,
     isActive: boolean,
     actingUserId: string,
-  ): Promise<Organisation> {
-    const organisation = await this.findById(id);
-    organisation.isActive = isActive;
-    const saved = await this.organisationsRepository.save(organisation);
+  ): Promise<OrganisationRow> {
+    await this.findById(id);
+    const [updated] = await this.db
+      .update(organisations)
+      .set({ isActive, updatedAt: new Date() })
+      .where(eq(organisations.id, id))
+      .returning();
     await this.auditLogService.record({
       organisationId: id,
       actingUserId,
@@ -110,14 +172,16 @@ export class OrganisationsService {
       entityType: 'organisation',
       entityId: id,
     });
-    return saved;
+    return updated;
   }
 
   async getPlatformStats() {
-    const [totalOrganisations, activeOrganisations] = await Promise.all([
-      this.organisationsRepository.count(),
-      this.organisationsRepository.count({ where: { isActive: true } }),
-    ]);
-    return { totalOrganisations, activeOrganisations };
+    const all = await this.db.query.organisations.findMany({
+      columns: { isActive: true },
+    });
+    return {
+      totalOrganisations: all.length,
+      activeOrganisations: all.filter((o) => o.isActive).length,
+    };
   }
 }

@@ -14,8 +14,13 @@ export enum IncidentSeverity {
   CRITICAL = 'critical',
 }
 
+/**
+ * No PENDING member: "pending" is represented by `incidents.organisationId IS NULL`
+ * (unclaimed, in the pool), not a verificationStatus value — see
+ * schema/enums.schema.ts's `verificationStatusEnum` doc comment. Claiming an incident
+ * always sets APPROVED; REJECTED/DUPLICATE are terminal post-claim outcomes.
+ */
 export enum VerificationStatus {
-  PENDING = 'pending',
   APPROVED = 'approved',
   REJECTED = 'rejected',
   DUPLICATE = 'duplicate',

@@ -12,9 +12,10 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { MembershipRole } from '../../common/enums/membership-role.enum';
 import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { CreateOrganisationDto } from './dto/create-organisation.dto';
@@ -39,7 +40,19 @@ export class OrganisationsController {
     @Body() dto: CreateOrganisationDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.organisationsService.create(dto, user.id);
+    return this.organisationsService.create(
+      {
+        name: dto.name,
+        description: dto.description,
+        contactEmail: dto.contactEmail,
+        initialAdminEmail: dto.initialAdminEmail,
+        serviceArea: {
+          center: dto.serviceAreaCenter,
+          radiusKm: dto.serviceAreaRadiusKm,
+        },
+      },
+      user.id,
+    );
   }
 
   @Roles(PLATFORM_ADMIN)
@@ -48,19 +61,37 @@ export class OrganisationsController {
     return this.organisationsService.findAll();
   }
 
-  @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+  /** Unauthenticated org picker for mobile registration — name only, active orgs only. */
+  @Public()
+  @Get('public')
+  listPublic() {
+    return this.organisationsService.listPublic();
+  }
+
+  @Roles(UserRole.ORG_ADMIN, PLATFORM_ADMIN)
   @Get(':organisationId')
   findOne(@Param('organisationId', ParseUUIDPipe) organisationId: string) {
     return this.organisationsService.findById(organisationId);
   }
 
-  @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+  @Roles(UserRole.ORG_ADMIN, PLATFORM_ADMIN)
   @Patch(':organisationId')
   update(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Body() dto: UpdateOrganisationDto,
   ) {
-    return this.organisationsService.updateProfile(organisationId, dto);
+    return this.organisationsService.updateProfile(organisationId, {
+      name: dto.name,
+      description: dto.description,
+      contactEmail: dto.contactEmail,
+      ...(dto.serviceAreaCenter &&
+        dto.serviceAreaRadiusKm && {
+          serviceArea: {
+            center: dto.serviceAreaCenter,
+            radiusKm: dto.serviceAreaRadiusKm,
+          },
+        }),
+    });
   }
 
   @Roles(PLATFORM_ADMIN)
@@ -83,16 +114,16 @@ export class OrganisationsController {
     return this.organisationsService.setActive(organisationId, false, user.id);
   }
 
-  @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+  @Roles(UserRole.ORG_ADMIN, PLATFORM_ADMIN)
   @Get(':organisationId/members')
   listMembers(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
-    @Query('role') role?: MembershipRole,
+    @Query('role') role?: UserRole,
   ) {
     return this.membersService.listMembers(organisationId, role);
   }
 
-  @Roles(MembershipRole.ORG_ADMIN)
+  @Roles(UserRole.ORG_ADMIN)
   @Post(':organisationId/invitations')
   createInvitation(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
@@ -102,6 +133,7 @@ export class OrganisationsController {
     return this.invitationsService.create({
       organisationId,
       email: dto.email,
+      fullName: dto.fullName,
       invitedByUserId: user.id,
     });
   }
@@ -113,7 +145,7 @@ export class OrganisationsController {
   ) {
     return this.invitationsService.listForOrganisation(
       organisationId,
-      MembershipRole.ORG_ADMIN,
+      UserRole.ORG_ADMIN,
     );
   }
 

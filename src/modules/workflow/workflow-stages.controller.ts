@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
-import { MembershipRole } from '../../common/enums/membership-role.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { CreateWorkflowStageDto } from './dto/create-workflow-stage.dto';
 import { MarkFinalDto } from './dto/mark-final.dto';
@@ -23,7 +23,7 @@ import { WorkflowStagesService } from './workflow-stages.service';
 
 @ApiTags('workflow-stages')
 @ApiBearerAuth()
-@Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+@Roles(UserRole.ORG_ADMIN, PLATFORM_ADMIN)
 @Controller('organisations/:organisationId/workflow-stages')
 export class WorkflowStagesController {
   constructor(private readonly stagesService: WorkflowStagesService) {}
@@ -42,6 +42,7 @@ export class WorkflowStagesController {
     return this.stagesService.createStage({
       organisationId,
       name: dto.name,
+      color: dto.color,
       actingUserId: user.id,
     });
   }

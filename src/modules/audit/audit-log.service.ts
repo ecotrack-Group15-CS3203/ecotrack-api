@@ -1,46 +1,48 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { AuditLog } from './entities/audit-log.entity';
+import { desc, eq } from 'drizzle-orm';
+import { auditLogs } from '../../database/schema';
+import { TenantDbService } from '../../database/tenant-db.service';
+
+export type AuditLogRow = typeof auditLogs.$inferSelect;
 
 @Injectable()
 export class AuditLogService {
-  constructor(
-    @InjectRepository(AuditLog)
-    private readonly auditLogRepository: Repository<AuditLog>,
-  ) {}
+  constructor(private readonly tenantDb: TenantDbService) {}
 
-  record(data: {
+  async record(data: {
     organisationId?: string | null;
     actingUserId?: string | null;
     action: string;
     entityType: string;
     entityId?: string | null;
     metadata?: Record<string, unknown> | null;
-  }): Promise<AuditLog> {
-    const entry = this.auditLogRepository.create({
-      organisationId: data.organisationId ?? null,
-      actingUserId: data.actingUserId ?? null,
-      action: data.action,
-      entityType: data.entityType,
-      entityId: data.entityId ?? null,
-      metadata: data.metadata ?? null,
-    });
-    return this.auditLogRepository.save(entry);
+  }): Promise<AuditLogRow> {
+    const [entry] = await this.tenantDb.db
+      .insert(auditLogs)
+      .values({
+        organisationId: data.organisationId ?? null,
+        actingUserId: data.actingUserId ?? null,
+        action: data.action,
+        entityType: data.entityType,
+        entityId: data.entityId ?? null,
+        metadata: data.metadata ?? null,
+      })
+      .returning();
+    return entry;
   }
 
-  listForOrg(organisationId: string): Promise<AuditLog[]> {
-    return this.auditLogRepository.find({
-      where: { organisationId },
-      order: { createdAt: 'DESC' },
-      take: 200,
+  listForOrg(organisationId: string): Promise<AuditLogRow[]> {
+    return this.tenantDb.db.query.auditLogs.findMany({
+      where: eq(auditLogs.organisationId, organisationId),
+      orderBy: desc(auditLogs.createdAt),
+      limit: 200,
     });
   }
 
-  listPlatformWide(): Promise<AuditLog[]> {
-    return this.auditLogRepository.find({
-      order: { createdAt: 'DESC' },
-      take: 200,
+  listPlatformWide(): Promise<AuditLogRow[]> {
+    return this.tenantDb.db.query.auditLogs.findMany({
+      orderBy: desc(auditLogs.createdAt),
+      limit: 200,
     });
   }
 }
