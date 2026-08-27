@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
 import { ClsService } from 'nestjs-cls';
 import { CLS_TENANT_DB } from './tenant-db.constants';
 import { DrizzleDb } from './drizzle.provider';
@@ -23,5 +24,33 @@ export class TenantDbService {
       );
     }
     return db;
+  }
+
+  /**
+   * Re-points the RLS session variables at `organisationId` for the remainder of this
+   * request's transaction.
+   *
+   * Needed exactly once, by self-service organisation registration: TenantInterceptor
+   * sets `app.current_tenant` from the caller's *existing* org, which for a citizen
+   * creating their first organisation is empty. Anything written afterwards through
+   * this same connection into an RLS-protected table naming the brand-new org — the
+   * default workflow stages, the audit row — fails its `WITH CHECK` because
+   * `NULLIF('', '')::uuid` is NULL and matches nothing. Re-pointing the variable makes
+   * the rest of the request behave as a member of the org that was just created.
+   *
+   * Uses `set_config(..., true)` (transaction-scoped) for the same reason
+   * TenantInterceptor does: connections are pooled, and a plain SET would leak this
+   * tenant into whichever request borrows the connection next. It reverts at
+   * COMMIT/ROLLBACK, so the effect never outlives the request that asked for it.
+   *
+   * Do not reach for this anywhere else. Any *other* caller wanting to change tenant
+   * mid-request is almost certainly working around a missing authorization check
+   * rather than fixing one.
+   */
+  async setTenant(organisationId: string): Promise<void> {
+    await this.db.execute(
+      sql`SELECT set_config('app.current_tenant', ${organisationId}, true),
+                 set_config('app.is_org_admin', 'true', true)`,
+    );
   }
 }

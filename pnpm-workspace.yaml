@@ -1,3 +1,5 @@
 allowBuilds:
   '@scarf/scarf': false
+  # drizzle-kit bundles with esbuild; its postinstall links the platform binary.
+  esbuild: true
   unrs-resolver: false

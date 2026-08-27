@@ -18,11 +18,15 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:integration": "jest --config ./test/jest-e2e.json --runInBand",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "ts-node -r tsconfig-paths/register src/database/migrate.ts",
-    "db:seed": "ts-node -r tsconfig-paths/register src/database/seed-dev-data.ts"
+    "db:seed": "ts-node -r tsconfig-paths/register src/database/seed-dev-data.ts",
+    "mock:jwks": "node tools/mock-jwks.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1118.0",
+    "@aws-sdk/s3-request-presigner": "^3.1118.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",

@@ -34,7 +34,11 @@ export class OrganisationsController {
     private readonly invitationsService: InvitationsService,
   ) {}
 
-  @Roles(PLATFORM_ADMIN)
+  /**
+   * Deliberately has no @Roles: any authenticated user may register an organisation
+   * and becomes its first org_admin (SRS 3.1.14). The one-org-per-user rule is
+   * enforced in the service against the caller's DB-resolved membership, not here.
+   */
   @Post()
   create(
     @Body() dto: CreateOrganisationDto,
@@ -51,7 +55,11 @@ export class OrganisationsController {
           radiusKm: dto.serviceAreaRadiusKm,
         },
       },
-      user.id,
+      {
+        id: user.id,
+        email: user.email,
+        organisationId: user.organisationId,
+      },
     );
   }
 

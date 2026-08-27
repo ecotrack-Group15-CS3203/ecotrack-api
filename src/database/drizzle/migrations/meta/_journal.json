@@ -29,6 +29,13 @@
       "when": 1786361371448,
       "tag": "0003_app_role_and_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786361371900,
+      "tag": "0004_notification_dispatch_policy",
+      "breakpoints": true
     }
   ]
 }

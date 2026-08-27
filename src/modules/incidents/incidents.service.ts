@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { NotificationType } from '../../common/enums/notification.enum';
-import { VerificationStatus } from '../../common/enums/incident.enum';
+import {
+  IncidentCategory,
+  VerificationStatus,
+} from '../../common/enums/incident.enum';
 import { incidentImages, incidents } from '../../database/schema';
 import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
@@ -32,9 +35,8 @@ export class IncidentsService {
   async create(
     reportedByUserId: string,
     dto: CreateIncidentDto,
-    imageUrls: string[],
   ): Promise<IncidentRow> {
-    if (imageUrls.length === 0) {
+    if (dto.mediaUrls.length === 0) {
       throw new BadRequestException('At least one photograph is required');
     }
 
@@ -44,16 +46,19 @@ export class IncidentsService {
         reportedByUserId,
         title: dto.title,
         description: dto.description,
-        category: dto.category,
-        severity: dto.severity,
-        location: toGeographyPoint(dto.latitude, dto.longitude),
+        // The mobile wizard collects no category; `other` keeps the column non-null
+        // without inventing a classification nobody supplied.
+        category: dto.category ?? IncidentCategory.OTHER,
+        // Wire field is `urgency`, column is `severity` — same values, see the DTO.
+        severity: dto.urgency,
+        location: toGeographyPoint(dto.location.lat, dto.location.lng),
         address: dto.address ?? null,
       })
       .returning();
 
     await this.tenantDb.db
       .insert(incidentImages)
-      .values(imageUrls.map((url) => ({ incidentId: saved.id, url })));
+      .values(dto.mediaUrls.map((url) => ({ incidentId: saved.id, url })));
 
     await this.auditLogService.record({
       organisationId: null,

@@ -24,12 +24,17 @@ export class CreateOrganisationDto {
   contactEmail: string;
 
   /**
-   * Every organisation needs an admin from the moment it's created, or it's
-   * an unreachable empty shell. If this address already has an account, they
-   * are added as org_admin directly; otherwise an invitation is created.
+   * Optional. Omitted (the normal, self-service case per SRS 3.1.14), the caller
+   * becomes the organisation's first `org_admin`. Supplied with somebody else's
+   * address — a platform admin standing up an organisation on their behalf — that
+   * account is promoted directly if it exists, or invited if it doesn't.
+   *
+   * Either way an organisation always gets an admin at creation; it is never left an
+   * unreachable empty shell.
    */
+  @IsOptional()
   @IsEmail()
-  initialAdminEmail: string;
+  initialAdminEmail?: string;
 
   /** Required at registration per SRS 3.1.14 — governs pool-claim eligibility. */
   @ValidateNested()

@@ -35,6 +35,12 @@ export class NotificationsService {
     private readonly pushNotificationsService: PushNotificationsService,
   ) {}
 
+  /**
+   * No `.returning()`, deliberately: a notification is almost always created *for*
+   * somebody else, and the read policy is strictly `user_id = app.current_user_id`, so
+   * the writer cannot see the row it just wrote. Asking for it back would fail the
+   * whole request under RLS. Nothing consumes the row, so nothing asks.
+   */
   async create(data: {
     userId: string;
     organisationId?: string | null;
@@ -43,19 +49,16 @@ export class NotificationsService {
     message: string;
     relatedEntityType?: string;
     relatedEntityId?: string;
-  }): Promise<NotificationRow> {
-    const [saved] = await this.tenantDb.db
-      .insert(notifications)
-      .values({
-        userId: data.userId,
-        organisationId: data.organisationId ?? null,
-        type: data.type,
-        title: data.title,
-        message: data.message,
-        relatedEntityType: data.relatedEntityType ?? null,
-        relatedEntityId: data.relatedEntityId ?? null,
-      })
-      .returning();
+  }): Promise<void> {
+    await this.tenantDb.db.insert(notifications).values({
+      userId: data.userId,
+      organisationId: data.organisationId ?? null,
+      type: data.type,
+      title: data.title,
+      message: data.message,
+      relatedEntityType: data.relatedEntityType ?? null,
+      relatedEntityId: data.relatedEntityId ?? null,
+    });
 
     // Fire-and-forget: push delivery must never block or fail the caller.
     void this.pushIfEligible(
@@ -64,8 +67,6 @@ export class NotificationsService {
       data.title,
       data.message,
     ).catch(() => undefined);
-
-    return saved;
   }
 
   private async pushIfEligible(

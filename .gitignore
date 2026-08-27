@@ -27,3 +27,10 @@ pnpm-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 .idea
+
+/temp_docs
+
+
+# local design/reference docs (not committed)
+ARCHITECTURE.md
+ROADMAP-MIDEVAL.md

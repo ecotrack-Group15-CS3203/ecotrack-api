@@ -6,8 +6,11 @@ services:
       POSTGRES_USER: ecotrack
       POSTGRES_PASSWORD: ecotrack
       POSTGRES_DB: ecotrack
+    # Host port must match DB_PORT in .env — the Drizzle rearchitecture moved this to
+    # 5434 so it cannot collide with a pre-existing 5433 volume holding the old
+    # TypeORM schema.
     ports:
-      - '5433:5432'
+      - '5434:5432'
     volumes:
       - ecotrack_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,5 +19,41 @@ services:
       timeout: 5s
       retries: 10
 
+  # S3-compatible object storage for local dev/CI. MediaModule talks to this through
+  # the ordinary AWS SDK (S3_ENDPOINT + path-style addressing); in deployment the same
+  # code points at real S3 with those two settings simply unset.
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ecotrack
+      MINIO_ROOT_PASSWORD: ecotrack123
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - ecotrack_minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: creates the media bucket, then exits. `docker compose up` will show it
+  # as "exited (0)" — that is success, not a failure.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ecotrack ecotrack123 &&
+      mc mb --ignore-existing local/ecotrack-media &&
+      echo 'bucket ecotrack-media ready'
+      "
+
 volumes:
   ecotrack_postgres_data:
+  ecotrack_minio_data:

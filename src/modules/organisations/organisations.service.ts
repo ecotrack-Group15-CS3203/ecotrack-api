@@ -1,9 +1,15 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { asc, eq } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../database/drizzle.provider';
 import type { DrizzleDb } from '../../database/drizzle.provider';
 import { organisations } from '../../database/schema';
 import { toGeographyPoint } from '../../database/schema/columns.helpers';
+import { TenantDbService } from '../../database/tenant-db.service';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AuditLogService } from '../audit/audit-log.service';
 import { UsersService } from '../users/users.service';
@@ -26,6 +32,7 @@ interface ServiceAreaInput {
 export class OrganisationsService {
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
+    private readonly tenantDb: TenantDbService,
     private readonly workflowStagesService: WorkflowStagesService,
     private readonly auditLogService: AuditLogService,
     private readonly usersService: UsersService,
@@ -57,20 +64,37 @@ export class OrganisationsService {
     return organisation;
   }
 
+  /**
+   * Self-service registration (SRS 3.1.14): any authenticated user may register an
+   * organisation, and by default becomes its `org_admin`. A platform admin may instead
+   * nominate somebody else by passing `initialAdminEmail`, which either promotes that
+   * account directly or leaves an invitation for them to redeem.
+   */
   async create(
     data: {
       name: string;
       description?: string;
       contactEmail: string;
-      initialAdminEmail: string;
+      initialAdminEmail?: string;
       serviceArea: ServiceAreaInput;
     },
-    actingUserId: string,
+    actingUser: { id: string; email: string; organisationId: string | null },
   ): Promise<{
     organisation: OrganisationRow;
     adminInvitation: InvitationRow | null;
     adminAlreadyExisted: boolean;
   }> {
+    // One organisation per user (SRS 2, User Characteristics). Checked against the
+    // caller's DB-resolved membership, which JwtStrategy re-reads every request.
+    const nominatesSomeoneElse =
+      !!data.initialAdminEmail &&
+      data.initialAdminEmail.toLowerCase() !== actingUser.email.toLowerCase();
+    if (actingUser.organisationId && !nominatesSomeoneElse) {
+      throw new ConflictException(
+        'You already belong to an organisation. Leave it before registering another.',
+      );
+    }
+
     const [organisation] = await this.db
       .insert(organisations)
       .values({
@@ -85,17 +109,36 @@ export class OrganisationsService {
       })
       .returning();
 
+    // Everything below writes through the request's RLS-scoped connection, naming an
+    // organisation the caller was not a member of when the request began. Without this
+    // the workflow-stage and audit inserts fail their WITH CHECK. See
+    // TenantDbService.setTenant.
+    await this.tenantDb.setTenant(organisation.id);
+
     await this.workflowStagesService.seedDefaultStages(organisation.id);
     await this.auditLogService.record({
       organisationId: organisation.id,
-      actingUserId,
+      actingUserId: actingUser.id,
       action: 'organisation.created',
       entityType: 'organisation',
       entityId: organisation.id,
     });
 
+    if (!nominatesSomeoneElse) {
+      await this.usersService.setMembership(
+        actingUser.id,
+        organisation.id,
+        UserRole.ORG_ADMIN,
+      );
+      return {
+        organisation,
+        adminInvitation: null,
+        adminAlreadyExisted: true,
+      };
+    }
+
     const existingUser = await this.usersService.findByEmail(
-      data.initialAdminEmail,
+      data.initialAdminEmail!,
     );
     let adminInvitation: InvitationRow | null = null;
     if (existingUser) {
@@ -107,9 +150,9 @@ export class OrganisationsService {
     } else {
       adminInvitation = await this.invitationsService.create({
         organisationId: organisation.id,
-        email: data.initialAdminEmail,
+        email: data.initialAdminEmail!,
         role: UserRole.ORG_ADMIN,
-        invitedByUserId: actingUserId,
+        invitedByUserId: actingUser.id,
       });
     }
 

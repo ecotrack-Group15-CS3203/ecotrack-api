@@ -10,9 +10,13 @@ import { OrgIncidentsController } from './org-incidents.controller';
 
 @Module({
   imports: [WorkflowModule, NotificationsModule, AuditModule],
+  // Order matters. Nest registers routes in this order, and Express matches
+  // first-wins: IncidentsController owns `GET /incidents/:incidentId`, which would
+  // otherwise swallow `GET /incidents/pool` and fail it as "uuid is expected". The
+  // literal path must be registered before the parameterised one.
   controllers: [
-    IncidentsController,
     IncidentPoolController,
+    IncidentsController,
     OrgIncidentsController,
   ],
   providers: [IncidentsService, IncidentPoolService],

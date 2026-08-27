@@ -16,11 +16,15 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('rejects an unauthenticated protected route with TOKEN_MISSING', () => {
     return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+      .get('/auth/me')
+      .expect(401)
+      .expect((res: { body: { code?: string } }) => {
+        // Mobile's interceptor branches on this code: only TOKEN_EXPIRED triggers a
+        // silent refresh, so the three 401 reasons must stay distinguishable.
+        expect(res.body.code).toBe('TOKEN_MISSING');
+      });
   });
 
   afterEach(async () => {

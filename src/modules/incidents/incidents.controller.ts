@@ -5,12 +5,8 @@ import {
   ParseUUIDPipe,
   Post,
   Body,
-  UploadedFiles,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
-import { incidentImageUploadOptions } from '../../common/config/upload.config';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -30,19 +26,17 @@ import { IncidentsService } from './incidents.service';
 export class IncidentsController {
   constructor(private readonly incidentsService: IncidentsService) {}
 
+  /**
+   * JSON, not multipart: photos are uploaded straight to S3 beforehand via
+   * POST /v1/media/upload-url, and only their URLs arrive here (SRS 3.1.15).
+   */
   @Roles(UserRole.CITIZEN, UserRole.VOLUNTEER, UserRole.ORG_ADMIN)
-  @ApiConsumes('multipart/form-data')
   @Post()
-  @UseInterceptors(FilesInterceptor('images', 5, incidentImageUploadOptions))
   create(
     @Body() dto: CreateIncidentDto,
-    @UploadedFiles() images: Express.Multer.File[],
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    const imageUrls = (images ?? []).map(
-      (file) => `/uploads/incidents/${file.filename}`,
-    );
-    return this.incidentsService.create(user.id, dto, imageUrls);
+    return this.incidentsService.create(user.id, dto);
   }
 
   @Get('mine')

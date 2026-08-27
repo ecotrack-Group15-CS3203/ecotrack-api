@@ -15,6 +15,8 @@ import { DrizzleModule } from './database/drizzle.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { HealthModule } from './modules/health/health.module';
+import { MediaModule } from './modules/media/media.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OrganisationsModule } from './modules/organisations/organisations.module';
@@ -54,6 +56,8 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
     AuditModule,
     DashboardModule,
     AuthModule,
+    HealthModule,
+    MediaModule,
   ],
   controllers: [AppController],
   providers: [
