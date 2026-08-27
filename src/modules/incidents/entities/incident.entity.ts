@@ -19,9 +19,9 @@ import { IncidentImage } from './incident-image.entity';
 
 @Entity('incidents')
 export class Incident extends BaseEntity {
-  @Column({ name: 'organisation_id' })
+  @Column({ name: 'organisation_id', nullable: true })
   @Index()
-  organisationId: string;
+  organisationId: string | null;
 
   @ManyToOne(() => Organisation, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'organisation_id' })
@@ -86,6 +86,9 @@ export class Incident extends BaseEntity {
 
   @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
   verifiedAt: Date | null;
+
+  @Column({ name: 'claimed_at', type: 'timestamptz', nullable: true })
+  claimedAt: Date | null;
 
   @OneToMany(() => IncidentImage, (image) => image.incident)
   images: IncidentImage[];

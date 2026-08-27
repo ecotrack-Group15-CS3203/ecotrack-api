@@ -42,6 +42,10 @@ export class OrganisationMembersService {
     return this.membersRepository.save(member);
   }
 
+  save(member: OrganisationMember): Promise<OrganisationMember> {
+    return this.membersRepository.save(member);
+  }
+
   listMembers(
     organisationId: string,
     role?: MembershipRole,
