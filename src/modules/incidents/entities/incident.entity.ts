@@ -19,6 +19,9 @@ import { IncidentImage } from './incident-image.entity';
 
 @Entity('incidents')
 export class Incident extends BaseEntity {
+  @Column({ name: 'incident_code', unique: true })
+  incidentCode: string;
+
   @Column({ name: 'organisation_id', nullable: true })
   @Index()
   organisationId: string | null;

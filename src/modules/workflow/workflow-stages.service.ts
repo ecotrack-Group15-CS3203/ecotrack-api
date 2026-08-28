@@ -114,15 +114,23 @@ export class WorkflowStagesService {
       );
     }
     const byId = new Map(stages.map((stage) => [stage.id, stage]));
-    const updated = orderedStageIds.map((id, position) => {
-      const stage = byId.get(id);
-      if (!stage) {
-        throw new BadRequestException(`Unknown stage id: ${id}`);
-      }
-      stage.position = position;
-      return stage;
+    const temporaryPositionOffset = stages.length;
+    const saved = await this.stagesRepository.manager.transaction(async (manager) => {
+      const repository = manager.getRepository(WorkflowStage);
+      stages.forEach((stage, index) => {
+        stage.position = index + temporaryPositionOffset;
+      });
+      await repository.save(stages);
+      const updated = orderedStageIds.map((id, position) => {
+        const stage = byId.get(id);
+        if (!stage) {
+          throw new BadRequestException(`Unknown stage id: ${id}`);
+        }
+        stage.position = position;
+        return stage;
+      });
+      return repository.save(updated);
     });
-    const saved = await this.stagesRepository.save(updated);
     await this.auditLogService.record({
       organisationId,
       actingUserId,
@@ -148,6 +156,26 @@ export class WorkflowStagesService {
       entityType: 'workflow_stage',
       entityId: id,
       metadata: { isFinal },
+    });
+    return saved;
+  }
+
+  async updateStage(
+    id: string,
+    data: { name?: string; isFinal?: boolean },
+    actingUserId: string,
+  ): Promise<WorkflowStage> {
+    const stage = await this.findById(id);
+    if (data.name !== undefined) stage.name = data.name.trim();
+    if (data.isFinal !== undefined) stage.isFinal = data.isFinal;
+    const saved = await this.stagesRepository.save(stage);
+    await this.auditLogService.record({
+      organisationId: stage.organisationId,
+      actingUserId,
+      action: 'workflow_stage.updated',
+      entityType: 'workflow_stage',
+      entityId: id,
+      metadata: data,
     });
     return saved;
   }

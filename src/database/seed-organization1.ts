@@ -499,6 +499,12 @@ async function main() {
       );
     }
 
+    const poolIncidents: Array<{ incident_code: string; title: string }> =
+      await queryRunner.query(
+      `SELECT incident_code, title FROM incidents
+       WHERE organisation_id IS NULL ORDER BY "createdAt" DESC`,
+      );
+
     await queryRunner.query(
       `INSERT INTO join_requests
          (organisation_id, requester_user_id, message, status)
@@ -518,6 +524,9 @@ async function main() {
     console.log(`Seeded ${ORG_NAME}.`);
     console.log(`Organisation admin: ${ORG_ADMIN_EMAIL} / ${ORG_ADMIN_PASSWORD}`);
     console.log(`Volunteer: ${VOLUNTEER_EMAIL} / ${VOLUNTEER_PASSWORD}`);
+    console.log(
+      `Incident pool: ${poolIncidents.map((incident) => `${incident.incident_code} (${incident.title})`).join(', ')}`,
+    );
   } catch (error) {
     await queryRunner.rollbackTransaction();
     throw error;
