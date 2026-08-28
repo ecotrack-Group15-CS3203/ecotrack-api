@@ -20,8 +20,10 @@ import { toGeographyPoint } from './schema/columns.helpers';
  * Re-runnable: it deletes its own previous rows first (matched by the marker
  * auth_subjects and org name below), so it can be run repeatedly while rehearsing.
  *
- * Connects as the migrator role, not the RLS-restricted runtime user: seeding writes
- * rows across tenant boundaries that no single tenant session could legally create.
+ * Connects as the migrator role, since seeding writes rows across tenant boundaries
+ * that no single tenant session could legally create — but it still sets the RLS
+ * session variables explicitly rather than relying on that role bypassing RLS, because
+ * on RDS it does not. See setSessionTenant below.
  *
  * NOTE: seeded users cannot log in until their `auth_subject` matches a real Asgardeo
  * `sub`. Until then, use them for direct DB/endpoint work; the demo accounts are
@@ -73,7 +75,39 @@ async function run() {
     password: process.env.DB_MIGRATOR_PASSWORD ?? process.env.DB_PASSWORD,
     database: process.env.DB_NAME,
   });
-  const db = drizzle(pool, { schema });
+  const client = await pool.connect();
+
+  /**
+   * Sets this connection's RLS session variables for the writes that follow.
+   *
+   * Locally the migrator is a genuine superuser and bypasses RLS outright, so this is
+   * a no-op. On Amazon RDS it is not — the master user holds `rds_superuser`, which is
+   * not the same thing — and with `FORCE ROW LEVEL SECURITY` on every tenant table it
+   * is subject to policies like any other role. Setting the variables explicitly makes
+   * the seed behave identically in both places, and avoids depending on `BYPASSRLS`,
+   * which cannot be granted on RDS anyway.
+   *
+   * Session-scoped (`false`), not transaction-scoped: this is a single short-lived
+   * connection owned entirely by this script, and the tenant changes partway through
+   * once the organisation exists.
+   */
+  const setSessionTenant = (
+    organisationId: string | null,
+    isOrgAdmin = false,
+  ) =>
+    client.query(
+      `SELECT set_config('app.current_tenant', $1, false),
+              set_config('app.is_org_admin', $2, false),
+              set_config('app.current_user_id', '', false),
+              set_config('app.is_platform_admin', 'false', false)`,
+      [organisationId ?? '', String(isOrgAdmin)],
+    );
+
+  const db = drizzle(client, { schema });
+
+  // Deleting a previous run's pooled incidents means SELECTing them first, and the
+  // incidents policy only exposes unclaimed rows to an org_admin session.
+  await setSessionTenant(null, true);
 
   // --- clean up a previous run -------------------------------------------------
   const priorUsers = await db.query.users.findMany({
@@ -121,6 +155,11 @@ async function run() {
       organisationId: org.id,
     })
     .returning();
+
+  // `workflow_stages` is RLS-scoped, so the session has to belong to the organisation
+  // being seeded before its stages can be written — the same move
+  // OrganisationsService.create makes after registering an org (TenantDbService.setTenant).
+  await setSessionTenant(org.id, true);
 
   // WorkflowStagesService.seedDefaultStages isn't reachable from a standalone script
   // without spinning up Nest DI, so its default set is duplicated here — keep these
@@ -189,6 +228,7 @@ async function run() {
   console.log(
     'Seeded users cannot log in until their auth_subject matches a real Asgardeo sub.',
   );
+  client.release();
   await pool.end();
 }
 

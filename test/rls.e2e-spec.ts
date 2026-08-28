@@ -84,8 +84,34 @@ async function asTenant<T>(
   }
 }
 
+/**
+ * Fixture writes go through one dedicated connection whose RLS session variables we
+ * set explicitly, rather than relying on the migrator being a superuser.
+ *
+ * Locally it is one, and bypasses RLS outright, so this changes nothing. On Amazon RDS
+ * the master user holds `rds_superuser` — not a true superuser — and with FORCE ROW
+ * LEVEL SECURITY on every tenant table it is subject to policies like anyone else.
+ * `BYPASSRLS` cannot be granted there either, so setting the variables is the portable
+ * way to seed rows that deliberately span tenants.
+ */
+async function seedAsTenant(
+  organisationId: string | null,
+  isOrgAdmin = true,
+): Promise<void> {
+  await migrator.query(
+    `SELECT set_config('app.current_tenant', $1, false),
+            set_config('app.is_org_admin', $2, false),
+            set_config('app.current_user_id', '', false),
+            set_config('app.is_platform_admin', 'false', false)`,
+    [organisationId ?? '', String(isOrgAdmin)],
+  );
+}
+
 beforeAll(async () => {
-  migrator = new Pool(migratorConfig);
+  // max: 1 so every fixture query reuses the same connection — session-scoped
+  // set_config would otherwise land on whichever connection the pool happened to hand
+  // out, and apply to the wrong query.
+  migrator = new Pool({ ...migratorConfig, max: 1 });
 
   const org = async (name: string) =>
     (
@@ -105,12 +131,16 @@ beforeAll(async () => {
       )
     ).rows[0].id;
 
+  // `incidents` is RLS-scoped, so each fixture row has to be written by a session
+  // belonging to the organisation that will own it. Pooled rows (orgId null) are
+  // permitted from any org_admin session.
   const incident = async (
     orgId: string | null,
     reporter: string,
     title: string,
-  ) =>
-    (
+  ) => {
+    await seedAsTenant(orgId);
+    return (
       await migrator.query<{ id: string }>(
         `INSERT INTO incidents (organisation_id, reported_by_user_id, title, description,
                                 category, severity, location)
@@ -118,6 +148,7 @@ beforeAll(async () => {
         [orgId, reporter, title, COLOMBO],
       )
     ).rows[0].id;
+  };
 
   const orgA = await org('rls-org-a');
   const orgB = await org('rls-org-b');
@@ -139,6 +170,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (fixture) {
+    // Deleting still requires the row to be visible under the policy's USING clause,
+    // so the teardown needs a session context too — an org_admin one, since the
+    // pooled incident belongs to no organisation.
+    await seedAsTenant(null);
     // incidents/users cascade or null out from the organisation delete; the pooled
     // incident and the org-less reporter have no organisation to cascade from.
     await migrator.query('DELETE FROM incidents WHERE id = $1', [
@@ -319,6 +354,9 @@ describe('notifications: per-user isolation', () => {
   });
 
   it('lets the recipient read their own notification', async () => {
+    // Seeded as org A, which is what the insert policy accepts for a row addressed to
+    // someone else — the same path the claim endpoint takes.
+    await seedAsTenant(fixture.orgA);
     await migrator.query(
       `INSERT INTO notifications (user_id, organisation_id, type, title, message)
        VALUES ($1, $2, 'incident_claimed', 't', 'm')`,
