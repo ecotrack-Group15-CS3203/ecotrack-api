@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -48,6 +50,11 @@ export class AuthService {
         invitation.expiresAt < new Date()
       ) {
         throw new BadRequestException('Invitation is invalid or has expired');
+      }
+      if (invitation.email.toLowerCase() !== dto.email.toLowerCase()) {
+        throw new BadRequestException(
+          'This invitation was issued to a different email address',
+        );
       }
       const invitedOrganisation = await this.organisationsService.findById(
         invitation.organisationId,
@@ -127,6 +134,56 @@ export class AuthService {
       entityId: user.id,
     });
 
+    return this.buildAuthResponse(user.id, user.email, user.isPlatformAdmin);
+  }
+
+  async getInvitationInfo(token: string) {
+    const invitation = await this.invitationsService.findValidByToken(token);
+    if (!invitation) {
+      throw new NotFoundException('Invitation not found');
+    }
+    const existingUser = await this.usersService.findByEmail(invitation.email);
+    return {
+      email: invitation.email,
+      organisationName: invitation.organisation.name,
+      role: invitation.role,
+      expired: invitation.expiresAt < new Date(),
+      accepted: !!invitation.acceptedAt,
+      emailAlreadyRegistered: !!existingUser,
+    };
+  }
+
+  /** Accept path for an invitee who already has an account: they log in first, then call this. */
+  async acceptInvitationForExistingUser(token: string, userId: string) {
+    const invitation = await this.invitationsService.findValidByToken(token);
+    if (
+      !invitation ||
+      invitation.acceptedAt ||
+      invitation.expiresAt < new Date()
+    ) {
+      throw new BadRequestException('Invitation is invalid or has expired');
+    }
+    const user = await this.usersService.findById(userId);
+    if (!user || user.email.toLowerCase() !== invitation.email.toLowerCase()) {
+      throw new ForbiddenException(
+        'This invitation was issued to a different email address',
+      );
+    }
+    if (!invitation.organisation.isActive) {
+      throw new BadRequestException('Organisation is not active');
+    }
+    const existingMembership = await this.membersService.findMembership(
+      invitation.organisationId,
+      userId,
+    );
+    if (!existingMembership) {
+      await this.membersService.createMembership({
+        organisationId: invitation.organisationId,
+        userId,
+        role: invitation.role,
+      });
+    }
+    await this.invitationsService.markAccepted(invitation);
     return this.buildAuthResponse(user.id, user.email, user.isPlatformAdmin);
   }
 

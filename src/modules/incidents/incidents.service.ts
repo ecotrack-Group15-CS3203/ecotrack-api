@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { VerificationStatus } from '../../common/enums/incident.enum';
 import { NotificationType } from '../../common/enums/notification.enum';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -74,7 +74,7 @@ export class IncidentsService {
   findMyReports(reportedByUserId: string): Promise<Incident[]> {
     return this.incidentsRepository.find({
       where: { reportedByUserId },
-      relations: { images: true, currentStage: true },
+      relations: { images: true, currentStage: true, reportedBy: true },
       order: { createdAt: 'DESC' },
     });
   }
@@ -110,9 +110,44 @@ export class IncidentsService {
       where: status
         ? { organisationId, verificationStatus: status }
         : { organisationId },
-      relations: { images: true, currentStage: true },
+      relations: { images: true, currentStage: true, reportedBy: true },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  listPool(): Promise<Incident[]> {
+    return this.incidentsRepository.find({
+      where: { organisationId: IsNull() },
+      relations: { images: true, currentStage: true, reportedBy: true },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async claim(
+    organisationId: string,
+    incidentId: string,
+    claimedByUserId: string,
+  ): Promise<Incident> {
+    const result = await this.incidentsRepository
+      .createQueryBuilder()
+      .update(Incident)
+      .set({ organisationId, claimedAt: new Date() })
+      .where('id = :incidentId AND organisation_id IS NULL', { incidentId })
+      .execute();
+
+    if (result.affected !== 1) {
+      throw new NotFoundException('Incident is no longer available in the pool');
+    }
+
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId: claimedByUserId,
+      action: 'incident.claimed',
+      entityType: 'incident',
+      entityId: incidentId,
+    });
+
+    return this.findScoped(organisationId, incidentId);
   }
 
   async approve(

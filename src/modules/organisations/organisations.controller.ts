@@ -18,8 +18,10 @@ import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { CreateOrganisationDto } from './dto/create-organisation.dto';
+import { UpdateJoinRequestDto } from './dto/update-join-request.dto';
 import { UpdateOrganisationDto } from './dto/update-organisation.dto';
 import { InvitationsService } from './invitations.service';
+import { JoinRequestsService } from './join-requests.service';
 import { OrganisationMembersService } from './organisation-members.service';
 import { OrganisationsService } from './organisations.service';
 
@@ -31,6 +33,7 @@ export class OrganisationsController {
     private readonly organisationsService: OrganisationsService,
     private readonly membersService: OrganisationMembersService,
     private readonly invitationsService: InvitationsService,
+    private readonly joinRequestsService: JoinRequestsService,
   ) {}
 
   @Roles(PLATFORM_ADMIN)
@@ -92,6 +95,22 @@ export class OrganisationsController {
     return this.membersService.listMembers(organisationId, role);
   }
 
+  @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+  @Get(':organisationId/join-requests')
+  listJoinRequests(@Param('organisationId', ParseUUIDPipe) organisationId: string) {
+    return this.joinRequestsService.listForOrganisation(organisationId);
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN)
+  @Patch(':organisationId/join-requests/:requestId')
+  updateJoinRequest(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+    @Body() dto: UpdateJoinRequestDto,
+  ) {
+    return this.joinRequestsService.update(organisationId, requestId, dto.status);
+  }
+
   @Roles(MembershipRole.ORG_ADMIN)
   @Post(':organisationId/invitations')
   createInvitation(
@@ -104,5 +123,32 @@ export class OrganisationsController {
       email: dto.email,
       invitedByUserId: user.id,
     });
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+  @Get(':organisationId/invitations')
+  listInvitations(@Param('organisationId', ParseUUIDPipe) organisationId: string) {
+    return this.invitationsService.listForOrganisation(organisationId);
+  }
+
+  @Roles(PLATFORM_ADMIN)
+  @Get(':organisationId/admin-invitations')
+  listAdminInvitations(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+  ) {
+    return this.invitationsService.listForOrganisation(
+      organisationId,
+      MembershipRole.ORG_ADMIN,
+    );
+  }
+
+  @Roles(PLATFORM_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @Post(':organisationId/admin-invitations/:invitationId/resend')
+  resendAdminInvitation(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('invitationId', ParseUUIDPipe) invitationId: string,
+  ) {
+    return this.invitationsService.resend(organisationId, invitationId);
   }
 }

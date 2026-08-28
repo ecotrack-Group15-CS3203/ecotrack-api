@@ -23,7 +23,8 @@
     "migration:create": "pnpm typeorm migration:create",
     "migration:run": "pnpm typeorm migration:run",
     "migration:revert": "pnpm typeorm migration:revert",
-    "seed:platform-admin": "ts-node -r tsconfig-paths/register src/database/seed-platform-admin.ts"
+    "seed:platform-admin": "ts-node -r tsconfig-paths/register src/database/seed-platform-admin.ts",
+    "seed:organization1": "ts-node -r tsconfig-paths/register src/database/seed-organization1.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

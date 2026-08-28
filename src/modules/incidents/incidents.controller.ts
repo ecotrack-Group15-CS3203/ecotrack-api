@@ -64,6 +64,22 @@ export class IncidentsController {
   }
 
   @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+  @Get('incident-pool')
+  findPool() {
+    return this.incidentsService.listPool();
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN)
+  @Post(':incidentId/claim')
+  claim(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('incidentId', ParseUUIDPipe) incidentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.incidentsService.claim(organisationId, incidentId, user.id);
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
   @Get()
   findAll(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,

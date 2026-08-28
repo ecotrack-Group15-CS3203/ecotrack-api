@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -47,5 +48,20 @@ export class AuthController {
   @Get('me')
   getProfile(@CurrentUser() user: AuthenticatedUser) {
     return this.authService.getProfile(user.id);
+  }
+
+  @Public()
+  @Get('invitations/:token')
+  getInvitationInfo(@Param('token') token: string) {
+    return this.authService.getInvitationInfo(token);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('invitations/:token/accept')
+  acceptInvitation(
+    @Param('token') token: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.authService.acceptInvitationForExistingUser(token, user.id);
   }
 }

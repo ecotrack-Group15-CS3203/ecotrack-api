@@ -19,6 +19,7 @@ import type { AuthenticatedUser } from '../../common/interfaces/authenticated-re
 import { CreateWorkflowStageDto } from './dto/create-workflow-stage.dto';
 import { MarkFinalDto } from './dto/mark-final.dto';
 import { ReorderWorkflowStagesDto } from './dto/reorder-workflow-stages.dto';
+import { UpdateWorkflowStageDto } from './dto/update-workflow-stage.dto';
 import { WorkflowStagesService } from './workflow-stages.service';
 
 @ApiTags('workflow-stages')
@@ -58,6 +59,17 @@ export class WorkflowStagesController {
       dto.orderedStageIds,
       user.id,
     );
+  }
+
+  @Patch(':stageId')
+  async update(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('stageId', ParseUUIDPipe) stageId: string,
+    @Body() dto: UpdateWorkflowStageDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.stagesService.findScoped(organisationId, stageId);
+    return this.stagesService.updateStage(stageId, dto, user.id);
   }
 
   @HttpCode(HttpStatus.OK)

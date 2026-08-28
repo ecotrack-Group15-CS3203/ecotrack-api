@@ -12,6 +12,7 @@ import { buildTypeOrmOptions } from './database/typeorm.config';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { EventsModule } from './modules/events/events.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OrganisationsModule } from './modules/organisations/organisations.module';
@@ -37,6 +38,7 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
     NotificationsModule,
     AuditModule,
     DashboardModule,
+    EventsModule,
     AuthModule,
   ],
   controllers: [AppController],
