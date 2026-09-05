@@ -41,9 +41,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: AsgardeoJwtPayload): Promise<AuthenticatedUser> {
+    // Asgardeo does not put `email` in an access token unless it is added to the
+    // application's Access Token Attributes (the same field `role`/`organizationId`
+    // need — not the User Attributes tab). Without it, provisioning cannot satisfy
+    // `users.email` NOT NULL, so fail with something that names the fix rather than
+    // throwing a TypeError deeper in.
+    if (!payload.email) {
+      throw new UnauthorizedException(
+        "Access token has no `email` claim. Add email to the application's Access Token Attributes in the Asgardeo console.",
+      );
+    }
+
+    // `??` alone is wrong here: `[].filter(Boolean).join(' ')` yields '', which is not
+    // nullish, so a name assembled from absent given/family names would silently win
+    // as an empty string. Pick the first non-empty candidate instead.
+    const assembledName = [payload.given_name, payload.family_name]
+      .filter(Boolean)
+      .join(' ');
     const fullName =
-      payload.name ??
-      [payload.given_name, payload.family_name].filter(Boolean).join(' ') ??
+      [payload.name, assembledName].find((candidate) => !!candidate?.trim()) ??
       payload.email.split('@')[0];
 
     const user = await this.usersService.findOrProvisionByAuthSubject({
