@@ -212,6 +212,33 @@ export class TasksService {
     return this.findById(task.id);
   }
 
+  async removeVolunteer(
+    organisationId: string,
+    taskId: string,
+    assignmentId: string,
+    actingUserId: string,
+  ): Promise<Task> {
+    const task = await this.findScoped(organisationId, taskId);
+    const assignment = await this.assignmentsRepository.findOne({
+      where: { id: assignmentId, taskId: task.id },
+    });
+    if (!assignment) {
+      throw new NotFoundException('Task assignment not found');
+    }
+
+    await this.assignmentsRepository.remove(assignment);
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId,
+      action: 'task.volunteer_unassigned',
+      entityType: 'task',
+      entityId: task.id,
+      metadata: { volunteerUserId: assignment.volunteerUserId },
+    });
+
+    return this.findById(task.id);
+  }
+
   private async findOwnAssignment(
     taskId: string,
     volunteerUserId: string,

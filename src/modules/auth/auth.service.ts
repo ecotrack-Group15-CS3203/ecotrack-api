@@ -104,9 +104,13 @@ export class AuthService {
       return this.buildAuthResponse(user.id, user.email, user.isPlatformAdmin);
     }
 
-    throw new BadRequestException(
-      'Registration requires either an invitationToken or an organisationId',
-    );
+    const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+    const user = await this.usersService.createUser({
+      fullName: dto.fullName,
+      email: dto.email,
+      passwordHash,
+    });
+    return this.buildAuthResponse(user.id, user.email, user.isPlatformAdmin);
   }
 
   async login(dto: LoginDto) {

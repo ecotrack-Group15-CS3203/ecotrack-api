@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   HttpCode,
@@ -102,6 +103,22 @@ export class TasksController {
       organisationId,
       taskId,
       dto.volunteerUserIds,
+    );
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN)
+  @Delete(':taskId/assignments/:assignmentId')
+  removeVolunteer(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.removeVolunteer(
+      organisationId,
+      taskId,
+      assignmentId,
+      user.id,
     );
   }
 

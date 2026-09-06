@@ -8,6 +8,48 @@ const ORG_ADMIN_PASSWORD = 'changeme';
 const VOLUNTEER_EMAIL = 'volunteer@organization1.dev';
 const VOLUNTEER_PASSWORD = 'changeme';
 
+const registerIncidentImages: Record<string, string[]> = {
+  'Illegal dumping near Riverside Park': ['/uploads/incidents/riverside-dumping.svg'],
+  'Polluted stream at Meadow Bridge': ['/uploads/incidents/polluted-stream.svg'],
+  'Smoke from waste burning site': ['/uploads/incidents/smoke-burn-site.svg'],
+  'Unclaimed litter report near Greenway': ['/uploads/incidents/greenway-litter.svg'],
+  'Unclaimed oil spill near Canal Road': ['/uploads/incidents/canal-oil-spill.svg'],
+  'Unclaimed fly-tipping at North Fields': ['/uploads/incidents/north-fields-fly-tipping.svg'],
+  'Recycling bins overturned at Market Square': ['/uploads/incidents/market-square-recycling.svg'],
+  'Wildlife hazard at canal towpath': ['/uploads/incidents/towpath-wildlife.svg'],
+  'Chemical containers beside allotments': ['/uploads/incidents/allotment-chemical.svg'],
+  'Litter accumulation at bus depot': ['/uploads/incidents/bus-depot-litter.svg'],
+  'Flooded drainage channel near South Docks': ['/uploads/incidents/south-docks-drainage.svg'],
+  'Battery waste dumped beside allotments': ['/uploads/incidents/allotment-chemical.svg'],
+  'Plastic rush along the riverside promenade': ['/uploads/incidents/riverside-dumping.svg'],
+  'Overflowing bins at East Station Plaza': ['/uploads/incidents/market-square-recycling.svg'],
+};
+
+async function assignImagesToIncidentTitles(
+  queryRunner: any,
+  titles: string[],
+): Promise<void> {
+  for (const title of titles) {
+    const [incident] = await queryRunner.query(
+      `SELECT id FROM incidents WHERE title = $1 ORDER BY "createdAt" DESC LIMIT 1`,
+      [title],
+    );
+
+    if (!incident) continue;
+
+    for (const imageUrl of registerIncidentImages[title] ?? []) {
+      await queryRunner.query(
+        `INSERT INTO incident_images (incident_id, url)
+         SELECT $1, $2::varchar
+         WHERE NOT EXISTS (
+           SELECT 1 FROM incident_images WHERE incident_id = $1 AND url = $2::varchar
+         )`,
+        [incident.id, imageUrl],
+      );
+    }
+  }
+}
+
 async function main() {
   await dataSource.initialize();
   const queryRunner = dataSource.createQueryRunner();
@@ -284,6 +326,54 @@ async function main() {
         reporterId: volunteerId,
       },
       {
+        title: 'Flooded drainage channel near South Docks',
+        description: 'Blocked drainage and plastic waste are causing standing water near the docks.',
+        category: 'water_pollution',
+        severity: 'high',
+        latitude: 51.5024,
+        longitude: -0.055,
+        address: 'South Docks, London',
+        status: 'approved',
+        stageId: verifiedStage.id,
+        reporterId: adminId,
+      },
+      {
+        title: 'Battery waste dumped beside allotments',
+        description: 'Used batteries and packaging were left near the allotment path.',
+        category: 'other',
+        severity: 'high',
+        latitude: 51.4813,
+        longitude: -0.1298,
+        address: 'North Allotments, London',
+        status: 'pending',
+        stageId: stage.id,
+        reporterId: volunteerId,
+      },
+      {
+        title: 'Plastic rush along the riverside promenade',
+        description: 'Plastic packaging and wrappers are gathering along the promenade after the recent rain.',
+        category: 'illegal_dumping',
+        severity: 'medium',
+        latitude: 51.5017,
+        longitude: -0.1333,
+        address: 'Riverside Promenade, London',
+        status: 'approved',
+        stageId: verifiedStage.id,
+        reporterId: volunteerId,
+      },
+      {
+        title: 'Overflowing bins at East Station Plaza',
+        description: 'Bins near the station are overflowing and attracting additional litter.',
+        category: 'illegal_dumping',
+        severity: 'low',
+        latitude: 51.5189,
+        longitude: -0.0784,
+        address: 'East Station Plaza, London',
+        status: 'pending',
+        stageId: stage.id,
+        reporterId: adminId,
+      },
+      {
         title: 'Wetland boardwalk cleanup completed',
         description: 'Plastic waste was removed from the wetland boardwalk during a volunteer event.',
         category: 'other',
@@ -347,6 +437,26 @@ async function main() {
         ],
       );
     }
+
+    const incidentTitlesWithImages = [
+      'Illegal dumping near Riverside Park',
+      'Polluted stream at Meadow Bridge',
+      'Community garden cleanup completed',
+      'Tree damage along North Trail',
+      'Smoke from waste burning site',
+      'Wildlife hazard at canal towpath',
+      'Recycling bins overturned at Market Square',
+      'Chemical containers beside allotments',
+      'Litter accumulation at bus depot',
+      'Flooded drainage channel near South Docks',
+      'Battery waste dumped beside allotments',
+      'Plastic rush along the riverside promenade',
+      'Overflowing bins at East Station Plaza',
+      'Unclaimed litter report near Greenway',
+      'Unclaimed oil spill near Canal Road',
+      'Unclaimed fly-tipping at North Fields',
+    ];
+    await assignImagesToIncidentTitles(queryRunner, incidentTitlesWithImages);
 
     const [assignedTask] = await queryRunner.query(
       `SELECT id FROM tasks
@@ -457,7 +567,7 @@ async function main() {
       ],
     );
 
-    for (const poolIncident of [
+    const poolIncidentsToSeed = [
       {
         title: 'Unclaimed oil spill near Canal Road',
         description: 'An oil spill has been reported near the canal access road.',
@@ -476,7 +586,45 @@ async function main() {
         longitude: -0.12,
         address: 'North Fields, London',
       },
-    ]) {
+      {
+        title: 'Unclaimed plastic wash-up at East Beach',
+        description: 'Large amounts of plastic waste have washed ashore after storm activity.',
+        category: 'water_pollution',
+        severity: 'high',
+        latitude: 51.4915,
+        longitude: -0.0534,
+        address: 'East Beach, London',
+      },
+      {
+        title: 'Unclaimed dumping near Old Quarry Lane',
+        description: 'A mixed waste pile has been left beside an old quarry access track.',
+        category: 'illegal_dumping',
+        severity: 'medium',
+        latitude: 51.4822,
+        longitude: -0.1468,
+        address: 'Old Quarry Lane, London',
+      },
+      {
+        title: 'Unclaimed chemical drums by Meadow Park',
+        description: 'Several sealed drums were left near the edge of the park woodland path.',
+        category: 'other',
+        severity: 'critical',
+        latitude: 51.5187,
+        longitude: -0.1022,
+        address: 'Meadow Park, London',
+      },
+      {
+        title: 'Unclaimed smoke plume near Railway Cut',
+        description: 'A visible smoke plume is rising from scattered waste near the rail cut.',
+        category: 'air_pollution',
+        severity: 'high',
+        latitude: 51.5309,
+        longitude: -0.0657,
+        address: 'Railway Cut, London',
+      },
+    ];
+
+    for (const poolIncident of poolIncidentsToSeed) {
       await queryRunner.query(
         `INSERT INTO incidents
            (organisation_id, reported_by_user_id, title, description,
@@ -498,6 +646,12 @@ async function main() {
         ],
       );
     }
+
+    const poolIncidentTitles = poolIncidentsToSeed.map((incident) => incident.title);
+    await assignImagesToIncidentTitles(queryRunner, [
+      ...poolIncidentTitles,
+      'Unclaimed litter report near Greenway',
+    ]);
 
     const poolIncidents: Array<{ incident_code: string; title: string }> =
       await queryRunner.query(

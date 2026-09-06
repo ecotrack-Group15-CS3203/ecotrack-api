@@ -36,7 +36,6 @@ export class OrganisationsController {
     private readonly joinRequestsService: JoinRequestsService,
   ) {}
 
-  @Roles(PLATFORM_ADMIN)
   @Post()
   create(
     @Body() dto: CreateOrganisationDto,
@@ -93,6 +92,16 @@ export class OrganisationsController {
     @Query('role') role?: MembershipRole,
   ) {
     return this.membersService.listMembers(organisationId, role);
+  }
+
+  @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @Patch(':organisationId/members/:userId/deactivate')
+  deactivateMember(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ) {
+    return this.membersService.setMembershipActive(organisationId, userId, false);
   }
 
   @Roles(MembershipRole.ORG_ADMIN, PLATFORM_ADMIN)

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MembershipRole } from '../../common/enums/membership-role.enum';
@@ -43,6 +43,29 @@ export class OrganisationMembersService {
   }
 
   save(member: OrganisationMember): Promise<OrganisationMember> {
+    return this.membersRepository.save(member);
+  }
+
+  async setMembershipActive(
+    organisationId: string,
+    memberRef: string,
+    isActive: boolean,
+  ): Promise<OrganisationMember> {
+    let member = await this.membersRepository.findOne({
+      where: { organisationId, userId: memberRef },
+    });
+
+    if (!member) {
+      member = await this.membersRepository.findOne({
+        where: { organisationId, id: memberRef },
+      });
+    }
+
+    if (!member) {
+      throw new NotFoundException('Membership not found');
+    }
+
+    member.isActive = isActive;
     return this.membersRepository.save(member);
   }
 

@@ -3,11 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLogService } from '../audit/audit-log.service';
 import { MembershipRole } from '../../common/enums/membership-role.enum';
-import { UsersService } from '../users/users.service';
 import { WorkflowStagesService } from '../workflow/workflow-stages.service';
 import { Invitation } from './entities/invitation.entity';
 import { Organisation } from './entities/organisation.entity';
-import { InvitationsService } from './invitations.service';
 import { OrganisationMembersService } from './organisation-members.service';
 
 @Injectable()
@@ -17,9 +15,7 @@ export class OrganisationsService {
     private readonly organisationsRepository: Repository<Organisation>,
     private readonly workflowStagesService: WorkflowStagesService,
     private readonly auditLogService: AuditLogService,
-    private readonly usersService: UsersService,
     private readonly membersService: OrganisationMembersService,
-    private readonly invitationsService: InvitationsService,
   ) {}
 
   findAll(): Promise<Organisation[]> {
@@ -37,7 +33,7 @@ export class OrganisationsService {
   }
 
   async create(
-    data: { name: string; description?: string; initialAdminEmail: string },
+    data: { name: string; description?: string; initialAdminEmail?: string },
     actingUserId: string,
   ): Promise<{
     organisation: Organisation;
@@ -58,29 +54,16 @@ export class OrganisationsService {
       entityId: saved.id,
     });
 
-    const existingUser = await this.usersService.findByEmail(
-      data.initialAdminEmail,
-    );
-    let adminInvitation: Invitation | null = null;
-    if (existingUser) {
-      await this.membersService.createMembership({
-        organisationId: saved.id,
-        userId: existingUser.id,
-        role: MembershipRole.ORG_ADMIN,
-      });
-    } else {
-      adminInvitation = await this.invitationsService.create({
-        organisationId: saved.id,
-        email: data.initialAdminEmail,
-        role: MembershipRole.ORG_ADMIN,
-        invitedByUserId: actingUserId,
-      });
-    }
+    await this.membersService.createMembership({
+      organisationId: saved.id,
+      userId: actingUserId,
+      role: MembershipRole.ORG_ADMIN,
+    });
 
     return {
       organisation: saved,
-      adminInvitation,
-      adminAlreadyExisted: !!existingUser,
+      adminInvitation: null,
+      adminAlreadyExisted: true,
     };
   }
 
