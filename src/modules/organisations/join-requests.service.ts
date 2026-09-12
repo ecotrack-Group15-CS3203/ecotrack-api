@@ -5,10 +5,10 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { NotificationType } from '../../common/enums/notification.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
-import { joinRequests, organisations } from '../../database/schema';
+import { joinRequests, organisations, users } from '../../database/schema';
 import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -17,6 +17,10 @@ import { UsersService } from '../users/users.service';
 import { OrganisationMembersService } from './organisation-members.service';
 
 export type JoinRequestRow = typeof joinRequests.$inferSelect;
+
+export interface JoinRequestWithRequester extends JoinRequestRow {
+  requester: { id: string; fullName: string; email: string } | null;
+}
 
 /**
  * SRS 3.1.11. Structurally close to InviteLinksService (same geo-eligibility and
@@ -158,11 +162,17 @@ export class JoinRequestsService {
     return created;
   }
 
-  listForOrganisation(
+  /**
+   * SRS 3.1.11's "Join Requests" panel needs requester name/email alongside each
+   * row — joined here rather than left to the caller, since a pending requester
+   * has no organisationId yet and so never appears in
+   * OrganisationMembersService.listMembers().
+   */
+  async listForOrganisation(
     organisationId: string,
     status?: 'pending' | 'approved' | 'rejected',
-  ): Promise<JoinRequestRow[]> {
-    return this.tenantDb.db.query.joinRequests.findMany({
+  ): Promise<JoinRequestWithRequester[]> {
+    const rows = await this.tenantDb.db.query.joinRequests.findMany({
       where: status
         ? and(
             eq(joinRequests.organisationId, organisationId),
@@ -171,6 +181,19 @@ export class JoinRequestsService {
         : eq(joinRequests.organisationId, organisationId),
       orderBy: desc(joinRequests.createdAt),
     });
+    if (rows.length === 0) return [];
+
+    const requesterIds = rows.map((r) => r.userId);
+    const requesters = await this.tenantDb.db.query.users.findMany({
+      where: inArray(users.id, requesterIds),
+      columns: { id: true, fullName: true, email: true },
+    });
+    const requesterById = new Map(requesters.map((u) => [u.id, u]));
+
+    return rows.map((r) => ({
+      ...r,
+      requester: requesterById.get(r.userId) ?? null,
+    }));
   }
 
   /**
