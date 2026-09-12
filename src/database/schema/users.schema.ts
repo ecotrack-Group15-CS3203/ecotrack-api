@@ -1,5 +1,5 @@
 import { boolean, jsonb, pgTable, uuid, varchar } from 'drizzle-orm/pg-core';
-import { baseColumns } from './columns.helpers';
+import { baseColumns, geographyPoint } from './columns.helpers';
 import { roleEnum } from './enums.schema';
 import { organisations } from './organisations.schema';
 
@@ -33,6 +33,13 @@ export const users = pgTable('users', {
   isPlatformAdmin: boolean('is_platform_admin').notNull().default(false),
   isActive: boolean('is_active').notNull().default(true),
   pushToken: varchar('push_token'),
+  /**
+   * Collected only at join-request/invite-accept time (SRS 3.11.1), never at
+   * registration — used exclusively to validate service-area eligibility, never
+   * for incident proximity or any other feature. NULL for any user who has never
+   * joined an organisation this way.
+   */
+  homeLocation: geographyPoint('home_location'),
   notificationPreferences: jsonb('notification_preferences')
     .notNull()
     .default(DEFAULT_NOTIFICATION_PREFERENCES),

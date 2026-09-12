@@ -2,6 +2,7 @@ export * from './enums.schema';
 export * from './organisations.schema';
 export * from './users.schema';
 export * from './invitations.schema';
+export * from './invite-links.schema';
 export * from './workflow.schema';
 export * from './workflow-stage-rules.schema';
 export * from './incidents.schema';

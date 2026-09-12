@@ -119,15 +119,27 @@ export class UsersService {
     return updated;
   }
 
-  /** Sets or clears a user's org membership + role — used by join/invite-accept flows. */
+  /**
+   * Sets or clears a user's org membership + role — used by join/invite-accept
+   * flows. `homeLocation` is optional and only ever passed by the invite-link
+   * accept flow (SRS 3.11.1): a single UPDATE keeps the membership change and the
+   * location write atomic at the row level without needing an explicit
+   * transaction.
+   */
   async setMembership(
     userId: string,
     organisationId: string | null,
     role: UserRole,
+    homeLocation?: { lat: number; lng: number },
   ): Promise<UserRow> {
     const [updated] = await this.db
       .update(users)
-      .set({ organisationId, role, updatedAt: new Date() })
+      .set({
+        organisationId,
+        role,
+        ...(homeLocation !== undefined && { homeLocation }),
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, userId))
       .returning();
     return updated;

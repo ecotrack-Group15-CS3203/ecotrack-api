@@ -19,9 +19,11 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
+import { AcceptInviteLinkDto } from './dto/accept-invite-link.dto';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { CreateOrganisationDto } from './dto/create-organisation.dto';
 import { UpdateOrganisationDto } from './dto/update-organisation.dto';
+import { InviteLinksService } from './invite-links.service';
 import { InvitationsService } from './invitations.service';
 import { OrganisationMembersService } from './organisation-members.service';
 import { OrganisationsService } from './organisations.service';
@@ -34,6 +36,7 @@ export class OrganisationsController {
     private readonly organisationsService: OrganisationsService,
     private readonly membersService: OrganisationMembersService,
     private readonly invitationsService: InvitationsService,
+    private readonly inviteLinksService: InviteLinksService,
   ) {}
 
   /**
@@ -172,5 +175,27 @@ export class OrganisationsController {
     @Param('invitationId', ParseUUIDPipe) invitationId: string,
   ) {
     return this.invitationsService.resend(organisationId, invitationId);
+  }
+
+  /**
+   * SRS 3.1.12's invite-link redemption. No @Roles restriction — any authenticated
+   * user may attempt this, same reasoning as org registration's create() above:
+   * the real business rules (already a member elsewhere, outside the service area)
+   * are enforced in the service, not via role gating here.
+   *
+   * Rate-limited per SRS 3.4.11, same as the public lookup this pairs with.
+   */
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('invites/accept')
+  acceptInviteLink(
+    @Body() dto: AcceptInviteLinkDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inviteLinksService.accept(dto.token, user.id, {
+      lat: dto.lat,
+      lng: dto.lng,
+    });
   }
 }
