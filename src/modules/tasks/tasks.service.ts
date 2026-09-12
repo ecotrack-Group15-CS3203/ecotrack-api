@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
 import { VerificationStatus } from '../../common/enums/incident.enum';
 import { NotificationType } from '../../common/enums/notification.enum';
 import {
@@ -25,6 +25,8 @@ import { AuditLogService } from '../audit/audit-log.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OrganisationMembersService } from '../organisations/organisation-members.service';
+import { WorkflowStageRulesService } from '../workflow/workflow-stage-rules.service';
+import { WorkflowStagesService } from '../workflow/workflow-stages.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 
@@ -62,8 +64,18 @@ export class TasksService {
     private readonly membersService: OrganisationMembersService,
     private readonly notificationsService: NotificationsService,
     private readonly auditLogService: AuditLogService,
+    private readonly workflowStagesService: WorkflowStagesService,
+    private readonly workflowStageRulesService: WorkflowStageRulesService,
   ) {}
 
+  /**
+   * The `verificationStatus === APPROVED` check stays: it's coarser than, and not
+   * replaced by, the stage-minimum check below. A rejected/duplicate incident keeps
+   * organisationId set and can sit at any stage (including a high-position one, e.g.
+   * Dismissed) — position alone can't tell "further along" from "further along AND
+   * still active", so this guard against terminal verificationStatus values remains
+   * necessary regardless of what minimum stage an org configures.
+   */
   async create(
     organisationId: string,
     createdByUserId: string,
@@ -73,11 +85,22 @@ export class TasksService {
       organisationId,
       dto.incidentId,
     );
-    if (incident.verificationStatus !== VerificationStatus.APPROVED) {
+    if (
+      incident.verificationStatus !== VerificationStatus.APPROVED ||
+      !incident.currentStageId
+    ) {
       throw new BadRequestException(
         'A cleanup task can only be created from a claimed incident',
       );
     }
+    const currentStage = await this.workflowStagesService.findById(
+      incident.currentStageId,
+    );
+    await this.workflowStageRulesService.assertMinimumStageReached(
+      organisationId,
+      'taskCreation',
+      currentStage,
+    );
 
     const [saved] = await this.tenantDb.db
       .insert(tasks)
@@ -98,6 +121,21 @@ export class TasksService {
       entityType: 'task',
       entityId: saved.id,
     });
+
+    const targetStage = await this.workflowStageRulesService.resolveTarget(
+      organisationId,
+      'taskCreation',
+      currentStage,
+    );
+    if (targetStage && targetStage.id !== currentStage.id) {
+      await this.incidentsService.advanceStage(
+        organisationId,
+        incident.id,
+        targetStage.id,
+        createdByUserId,
+        'task.created',
+      );
+    }
 
     return this.findById(saved.id);
   }
@@ -588,6 +626,44 @@ export class TasksService {
           })
         : Promise.resolve(),
     ]);
+
+    // SRS 3.1.21: once every sibling task on the parent incident is complete,
+    // advance it per the Task Completion rule. This never blocks the task
+    // completion above — only the incident's own advance depends on it — and it's
+    // a no-op if the incident has since been rejected (organisationId/
+    // currentStageId would still be set, so this only guards a truly pathological
+    // state, not the rejected case).
+    const [{ incomplete }] = await this.tenantDb.db
+      .select({ incomplete: count() })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.incidentId, task.incidentId),
+          ne(tasks.status, TaskStatus.COMPLETED),
+        ),
+      );
+    if (incomplete === 0) {
+      const incident = await this.incidentsService.findById(task.incidentId);
+      if (incident.organisationId && incident.currentStageId) {
+        const currentStage = await this.workflowStagesService.findById(
+          incident.currentStageId,
+        );
+        const targetStage = await this.workflowStageRulesService.resolveTarget(
+          task.organisationId,
+          'taskCompletion',
+          currentStage,
+        );
+        if (targetStage && targetStage.id !== currentStage.id) {
+          await this.incidentsService.advanceStage(
+            task.organisationId,
+            incident.id,
+            targetStage.id,
+            volunteerUserId,
+            'task.completed',
+          );
+        }
+      }
+    }
 
     return this.findById(taskId);
   }

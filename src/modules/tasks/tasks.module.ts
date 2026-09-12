@@ -3,6 +3,7 @@ import { AuditModule } from '../audit/audit.module';
 import { IncidentsModule } from '../incidents/incidents.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganisationsModule } from '../organisations/organisations.module';
+import { WorkflowModule } from '../workflow/workflow.module';
 import { TasksController } from './tasks.controller';
 import { TasksService } from './tasks.service';
 
@@ -12,6 +13,7 @@ import { TasksService } from './tasks.service';
     OrganisationsModule,
     NotificationsModule,
     AuditModule,
+    WorkflowModule,
   ],
   controllers: [TasksController],
   providers: [TasksService],

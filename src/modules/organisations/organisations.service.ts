@@ -12,6 +12,7 @@ import { TenantDbService } from '../../database/tenant-db.service';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AuditLogService } from '../audit/audit-log.service';
 import { UsersService } from '../users/users.service';
+import { WorkflowStageRulesService } from '../workflow/workflow-stage-rules.service';
 import { WorkflowStagesService } from '../workflow/workflow-stages.service';
 import { InvitationRow, InvitationsService } from './invitations.service';
 
@@ -33,6 +34,7 @@ export class OrganisationsService {
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     private readonly tenantDb: TenantDbService,
     private readonly workflowStagesService: WorkflowStagesService,
+    private readonly workflowStageRulesService: WorkflowStageRulesService,
     private readonly auditLogService: AuditLogService,
     private readonly usersService: UsersService,
     private readonly invitationsService: InvitationsService,
@@ -112,6 +114,9 @@ export class OrganisationsService {
     await this.tenantDb.setTenant(organisation.id);
 
     await this.workflowStagesService.seedDefaultStages(organisation.id);
+    // Seeds the default rules row now rather than lazily on first read, so a freshly
+    // registered org's workflow settings page has something to show immediately.
+    await this.workflowStageRulesService.getRules(organisation.id);
     await this.auditLogService.record({
       organisationId: organisation.id,
       actingUserId: actingUser.id,

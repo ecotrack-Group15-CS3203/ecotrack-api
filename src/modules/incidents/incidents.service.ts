@@ -139,6 +139,40 @@ export class IncidentsService {
     return incident;
   }
 
+  /**
+   * The system-triggered counterpart to updateStage() (the admin-facing Manual
+   * Status Update): used by TasksService/EventsService when a Task/Event Creation
+   * or Completion rule resolves a target stage (SRS 3.1.21's Auto-Advance Rules).
+   * No expectedVersion, no no-op short-circuit, no NotFound/Conflict semantics —
+   * the caller already has both the incident and the target stage in hand and has
+   * already decided an advance is warranted; this just performs it and audits it.
+   */
+  async advanceStage(
+    organisationId: string,
+    incidentId: string,
+    targetStageId: string,
+    actingUserId: string,
+    trigger: string,
+  ): Promise<void> {
+    await this.tenantDb.db
+      .update(incidents)
+      .set({
+        currentStageId: targetStageId,
+        version: sql`${incidents.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(incidents.id, incidentId));
+
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId,
+      action: 'incident.stage_changed',
+      entityType: 'incident',
+      entityId: incidentId,
+      metadata: { newStageId: targetStageId, trigger },
+    });
+  }
+
   listForOrg(
     organisationId: string,
     status?: VerificationStatus,

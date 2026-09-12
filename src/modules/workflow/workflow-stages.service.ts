@@ -1,10 +1,15 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, count, eq, ne } from 'drizzle-orm';
-import { incidents, workflowStages } from '../../database/schema';
+import { and, asc, count, eq, ne, or } from 'drizzle-orm';
+import {
+  incidents,
+  workflowStageRules,
+  workflowStages,
+} from '../../database/schema';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 
@@ -89,17 +94,25 @@ export class WorkflowStagesService {
     return this.findStageBySlug(organisationId, 'dismissed');
   }
 
-  async findNextStage(
+  /**
+   * The "Automatic" fallback in SRS 3.1.21's Auto-Advance Rules: the stage with the
+   * lowest position strictly greater than the current one. Positions stay contiguous
+   * by construction (deleteStage renumbers on every delete), so "position + 1" and
+   * "lowest position greater than current" are equivalent here — no gap can exist.
+   * Returns undefined, not currentStage, when there's no next stage: callers (see
+   * WorkflowStageRulesService.resolveTarget) need to tell "nothing to advance to"
+   * apart from "advance to where it already is".
+   */
+  findNextStage(
     organisationId: string,
     currentStage: WorkflowStageRow,
-  ): Promise<WorkflowStageRow> {
-    const next = await this.tenantDb.db.query.workflowStages.findFirst({
+  ): Promise<WorkflowStageRow | undefined> {
+    return this.tenantDb.db.query.workflowStages.findFirst({
       where: and(
         eq(workflowStages.organisationId, organisationId),
         eq(workflowStages.position, currentStage.position + 1),
       ),
     });
-    return next ?? currentStage;
   }
 
   async findById(id: string): Promise<WorkflowStageRow> {
@@ -270,6 +283,13 @@ export class WorkflowStagesService {
     return saved;
   }
 
+  /**
+   * Both preconditions and their exact wording/shape are SRS 3.1.21's Stage Deletion
+   * Constraints. Not injecting WorkflowStageRulesService for the second check — a
+   * direct query against workflowStageRules avoids a circular dependency between the
+   * two services (rules needs stages to validate/resolve stage ids; stages would only
+   * need rules for this one existence check).
+   */
   async deleteStage(id: string, actingUserId: string): Promise<void> {
     const stage = await this.findById(id);
     const [{ inUse }] = await this.tenantDb.db
@@ -277,8 +297,28 @@ export class WorkflowStagesService {
       .from(incidents)
       .where(eq(incidents.currentStageId, id));
     if (inUse > 0) {
-      throw new BadRequestException(
-        'Cannot delete a workflow stage that is currently in use by one or more incidents',
+      throw new ConflictException({
+        message: `Cannot delete stage - ${inUse} incident(s) are currently in this stage.`,
+        conflictingCount: inUse,
+      });
+    }
+    const referencingRule =
+      await this.tenantDb.db.query.workflowStageRules.findFirst({
+        where: and(
+          eq(workflowStageRules.organisationId, stage.organisationId),
+          or(
+            eq(workflowStageRules.taskCreationMinStageId, id),
+            eq(workflowStageRules.taskCreationTargetStageId, id),
+            eq(workflowStageRules.eventCreationMinStageId, id),
+            eq(workflowStageRules.eventCreationTargetStageId, id),
+            eq(workflowStageRules.taskCompletionTargetStageId, id),
+            eq(workflowStageRules.eventCompletionTargetStageId, id),
+          ),
+        ),
+      });
+    if (referencingRule) {
+      throw new ConflictException(
+        'Cannot delete stage - it is used in a Task & Event Creation/Completion rule.',
       );
     }
     await this.tenantDb.db
