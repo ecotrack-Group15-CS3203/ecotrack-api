@@ -38,9 +38,10 @@ const TARGET_STAGE_COLUMN: Record<
   eventCompletion: 'eventCompletionTargetStageId',
 };
 
+/** Includes the article so the message template doesn't have to guess "a"/"an". */
 const TRIGGER_LABEL: Record<'taskCreation' | 'eventCreation', string> = {
-  taskCreation: 'task',
-  eventCreation: 'event',
+  taskCreation: 'a task',
+  eventCreation: 'an event',
 };
 
 @Injectable()
@@ -144,7 +145,7 @@ export class WorkflowStageRulesService {
     const minStage = await this.workflowStagesService.findById(minStageId);
     if (currentStage.position < minStage.position) {
       throw new UnprocessableEntityException(
-        `This incident must reach the '${minStage.name}' stage before a ${TRIGGER_LABEL[trigger]} can be created. It is currently at '${currentStage.name}'.`,
+        `This incident must reach the '${minStage.name}' stage before ${TRIGGER_LABEL[trigger]} can be created. It is currently at '${currentStage.name}'.`,
       );
     }
   }

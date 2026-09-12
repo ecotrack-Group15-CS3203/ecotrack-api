@@ -9,4 +9,5 @@ export enum NotificationType {
   JOIN_REQUEST_SUBMITTED = 'join_request_submitted',
   JOIN_REQUEST_APPROVED = 'join_request_approved',
   JOIN_REQUEST_REJECTED = 'join_request_rejected',
+  EVENT_CANCELLED = 'event_cancelled',
 }

@@ -15,6 +15,7 @@ import { DrizzleModule } from './database/drizzle.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { EventsModule } from './modules/events/events.module';
 import { HealthModule } from './modules/health/health.module';
 import { MediaModule } from './modules/media/media.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
@@ -56,6 +57,7 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
     WorkflowModule,
     IncidentsModule,
     TasksModule,
+    EventsModule,
     NotificationsModule,
     AuditModule,
     DashboardModule,
