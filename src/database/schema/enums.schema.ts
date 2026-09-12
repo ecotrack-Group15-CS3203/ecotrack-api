@@ -46,6 +46,7 @@ export const assignmentStatusEnum = pgEnum('assignment_status', [
   'assigned',
   'accepted',
   'declined',
+  'cancelled',
 ]);
 
 /** `incident_approved` renamed `incident_claimed` to match the pool/claim model. */

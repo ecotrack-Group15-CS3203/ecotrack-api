@@ -57,6 +57,20 @@
       "when": 1789216500000,
       "tag": "0007_workflow_stage_rules_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789219461676,
+      "tag": "0008_task_title_and_due_date",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789219538469,
+      "tag": "0009_drop_task_scheduled_at",
+      "breakpoints": true
     }
   ]
 }

@@ -102,25 +102,46 @@ export class TasksService {
       currentStage,
     );
 
+    await this.assertActiveVolunteer(organisationId, dto.assignedTo);
+
     const [saved] = await this.tenantDb.db
       .insert(tasks)
       .values({
         organisationId,
         incidentId: incident.id,
+        title: dto.title,
         description: dto.description,
         priority: dto.priority,
-        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+        dueDate: new Date(dto.dueDate),
         createdByUserId,
       })
       .returning();
 
-    await this.auditLogService.record({
+    await this.tenantDb.db.insert(taskAssignments).values({
       organisationId,
-      actingUserId: createdByUserId,
-      action: 'task.created',
-      entityType: 'task',
-      entityId: saved.id,
+      taskId: saved.id,
+      volunteerUserId: dto.assignedTo,
     });
+
+    await Promise.all([
+      this.auditLogService.record({
+        organisationId,
+        actingUserId: createdByUserId,
+        action: 'task.created',
+        entityType: 'task',
+        entityId: saved.id,
+        metadata: { assignedTo: dto.assignedTo },
+      }),
+      this.notificationsService.create({
+        userId: dto.assignedTo,
+        organisationId,
+        type: NotificationType.TASK_ASSIGNED,
+        title: 'New cleanup task assigned',
+        message: `You have been assigned to: ${dto.title}`,
+        relatedEntityType: 'task',
+        relatedEntityId: saved.id,
+      }),
+    ]);
 
     const targetStage = await this.workflowStageRulesService.resolveTarget(
       organisationId,
@@ -144,31 +165,42 @@ export class TasksService {
     organisationId: string,
     taskId: string,
     dto: UpdateTaskDto,
+    actingUserId: string,
   ): Promise<TaskFull> {
     const task = await this.findScoped(organisationId, taskId);
     const priorityChanged =
       dto.priority !== undefined && task.priority !== dto.priority;
     const scheduleChanged =
-      dto.scheduledAt !== undefined &&
-      task.scheduledAt?.toISOString() !==
-        new Date(dto.scheduledAt).toISOString();
+      dto.dueDate !== undefined &&
+      task.dueDate.toISOString() !== new Date(dto.dueDate).toISOString();
+
+    if (dto.assignedTo !== undefined) {
+      await this.assertActiveVolunteer(organisationId, dto.assignedTo);
+    }
 
     const [updated] = await this.tenantDb.db
       .update(tasks)
       .set({
         ...(dto.priority !== undefined && { priority: dto.priority }),
-        ...(dto.scheduledAt !== undefined && {
-          scheduledAt: new Date(dto.scheduledAt),
-        }),
+        ...(dto.dueDate !== undefined && { dueDate: new Date(dto.dueDate) }),
         updatedAt: new Date(),
       })
       .where(eq(tasks.id, taskId))
       .returning();
 
     if (scheduleChanged || priorityChanged) {
+      // Only the currently active assignee(s) — with a single assignee per task
+      // (SRS 3.1.8) now the norm, a schedule/priority change would otherwise also
+      // notify whoever a prior reassignment cancelled off this task.
       const assignments = await this.tenantDb.db.query.taskAssignments.findMany(
         {
-          where: eq(taskAssignments.taskId, taskId),
+          where: and(
+            eq(taskAssignments.taskId, taskId),
+            inArray(taskAssignments.status, [
+              AssignmentStatus.ASSIGNED,
+              AssignmentStatus.ACCEPTED,
+            ]),
+          ),
         },
       );
       if (scheduleChanged) {
@@ -179,7 +211,7 @@ export class TasksService {
               organisationId,
               type: NotificationType.CLEANUP_SCHEDULED,
               title: 'Cleanup task scheduled',
-              message: `"${updated.description}" has been scheduled for ${updated.scheduledAt?.toISOString()}.`,
+              message: `"${updated.title}" is now due ${updated.dueDate.toISOString()}.`,
               relatedEntityType: 'task',
               relatedEntityId: taskId,
             }),
@@ -194,13 +226,22 @@ export class TasksService {
               organisationId,
               type: NotificationType.TASK_STATUS_CHANGED,
               title: 'Cleanup task priority changed',
-              message: `"${updated.description}" priority was changed to ${updated.priority}.`,
+              message: `"${updated.title}" priority was changed to ${updated.priority}.`,
               relatedEntityType: 'task',
               relatedEntityId: taskId,
             }),
           ),
         );
       }
+    }
+
+    if (dto.assignedTo !== undefined) {
+      await this.reassign(
+        organisationId,
+        updated,
+        dto.assignedTo,
+        actingUserId,
+      );
     }
 
     return this.findById(taskId);
@@ -331,7 +372,7 @@ export class TasksService {
     const matchingTaskIds = await this.tenantDb.db
       .select({
         id: tasks.id,
-        scheduledAt: tasks.scheduledAt,
+        dueDate: tasks.dueDate,
         createdAt: tasks.createdAt,
       })
       .from(taskAssignments)
@@ -339,15 +380,13 @@ export class TasksService {
       .where(where);
 
     const total = matchingTaskIds.length;
+    // dueDate is required (SRS 3.1.6), so 'upcoming' needs no null-handling branch
+    // the way this did back when it was an optional scheduledAt.
     const sorted =
       options.view === 'upcoming'
-        ? [...matchingTaskIds].sort((a, b) => {
-            if (a.scheduledAt && b.scheduledAt)
-              return a.scheduledAt.getTime() - b.scheduledAt.getTime();
-            if (a.scheduledAt) return -1;
-            if (b.scheduledAt) return 1;
-            return b.createdAt.getTime() - a.createdAt.getTime();
-          })
+        ? [...matchingTaskIds].sort(
+            (a, b) => a.dueDate.getTime() - b.dueDate.getTime(),
+          )
         : [...matchingTaskIds].sort(
             (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
           );
@@ -359,57 +398,113 @@ export class TasksService {
     return { items, total, page, limit };
   }
 
-  async assignVolunteers(
+  private async assertActiveVolunteer(
     organisationId: string,
-    taskId: string,
-    volunteerUserIds: string[],
-  ): Promise<TaskFull> {
-    const task = await this.findScoped(organisationId, taskId);
-
-    for (const volunteerUserId of volunteerUserIds) {
-      const member = await this.membersService.findMembership(
-        organisationId,
-        volunteerUserId,
+    volunteerUserId: string,
+  ): Promise<void> {
+    const member = await this.membersService.findMembership(
+      organisationId,
+      volunteerUserId,
+    );
+    if (!member || !member.isActive || member.role !== UserRole.VOLUNTEER) {
+      throw new BadRequestException(
+        `User ${volunteerUserId} is not an active volunteer of this organisation`,
       );
-      if (!member || !member.isActive || member.role !== UserRole.VOLUNTEER) {
-        throw new BadRequestException(
-          `User ${volunteerUserId} is not an active volunteer of this organisation`,
-        );
-      }
+    }
+  }
 
-      const existing = await this.tenantDb.db.query.taskAssignments.findFirst({
-        where: and(
-          eq(taskAssignments.taskId, task.id),
-          eq(taskAssignments.volunteerUserId, volunteerUserId),
-        ),
+  /**
+   * SRS 3.1.8: a task has exactly one current assignee, so reassignment cancels
+   * whatever's active rather than adding a second row, and notifies both
+   * volunteers. Updates (not inserts for) a prior assignment row for the incoming
+   * volunteer if one already exists — task_assignments has a UNIQUE(task_id,
+   * volunteer_user_id) constraint, so re-assigning someone who was previously
+   * cancelled/declined on this same task must reuse their existing row.
+   */
+  private async reassign(
+    organisationId: string,
+    task: { id: string; title: string },
+    newVolunteerUserId: string,
+    actingUserId: string,
+  ): Promise<void> {
+    const current = await this.tenantDb.db.query.taskAssignments.findFirst({
+      where: and(
+        eq(taskAssignments.taskId, task.id),
+        inArray(taskAssignments.status, [
+          AssignmentStatus.ASSIGNED,
+          AssignmentStatus.ACCEPTED,
+        ]),
+      ),
+    });
+    if (current?.volunteerUserId === newVolunteerUserId) return;
+
+    if (current) {
+      await this.tenantDb.db
+        .update(taskAssignments)
+        .set({
+          status: AssignmentStatus.CANCELLED,
+          respondedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(taskAssignments.id, current.id));
+      await this.notificationsService.create({
+        userId: current.volunteerUserId,
+        organisationId,
+        type: NotificationType.TASK_STATUS_CHANGED,
+        title: 'Cleanup task reassigned',
+        message: `You have been unassigned from: ${task.title}`,
+        relatedEntityType: 'task',
+        relatedEntityId: task.id,
       });
-      if (!existing) {
-        await this.tenantDb.db
-          .insert(taskAssignments)
-          .values({ organisationId, taskId: task.id, volunteerUserId });
-        await Promise.all([
-          this.auditLogService.record({
-            organisationId,
-            actingUserId: volunteerUserId,
-            action: 'task.volunteer_assigned',
-            entityType: 'task',
-            entityId: task.id,
-            metadata: { volunteerUserId },
-          }),
-          this.notificationsService.create({
-            userId: volunteerUserId,
-            organisationId,
-            type: NotificationType.TASK_ASSIGNED,
-            title: 'New cleanup task assigned',
-            message: `You have been assigned to: ${task.description}`,
-            relatedEntityType: 'task',
-            relatedEntityId: task.id,
-          }),
-        ]);
-      }
     }
 
-    return this.findById(task.id);
+    const existingForNewVolunteer =
+      await this.tenantDb.db.query.taskAssignments.findFirst({
+        where: and(
+          eq(taskAssignments.taskId, task.id),
+          eq(taskAssignments.volunteerUserId, newVolunteerUserId),
+        ),
+      });
+    if (existingForNewVolunteer) {
+      await this.tenantDb.db
+        .update(taskAssignments)
+        .set({
+          status: AssignmentStatus.ASSIGNED,
+          respondedAt: null,
+          declineReason: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(taskAssignments.id, existingForNewVolunteer.id));
+    } else {
+      await this.tenantDb.db.insert(taskAssignments).values({
+        organisationId,
+        taskId: task.id,
+        volunteerUserId: newVolunteerUserId,
+      });
+    }
+
+    await Promise.all([
+      this.auditLogService.record({
+        organisationId,
+        actingUserId,
+        action: 'task.reassigned',
+        entityType: 'task',
+        entityId: task.id,
+        metadata: {
+          from: current?.volunteerUserId ?? null,
+          to: newVolunteerUserId,
+        },
+      }),
+      this.notificationsService.create({
+        userId: newVolunteerUserId,
+        organisationId,
+        type: NotificationType.TASK_ASSIGNED,
+        title: 'New cleanup task assigned',
+        message: `You have been assigned to: ${task.title}`,
+        relatedEntityType: 'task',
+        relatedEntityId: task.id,
+      }),
+    ]);
   }
 
   /**
@@ -476,8 +571,8 @@ export class TasksService {
           ? 'Volunteer accepted a task'
           : 'Volunteer declined a task',
         message: accept
-          ? `${volunteerName} accepted: ${task.description}`
-          : `${volunteerName} declined: ${task.description}.${reason ? ` Reason: ${reason}.` : ''} It may need reassigning.`,
+          ? `${volunteerName} accepted: ${task.title}`
+          : `${volunteerName} declined: ${task.title}.${reason ? ` Reason: ${reason}.` : ''} It may need reassigning.`,
         relatedEntityType: 'task',
         relatedEntityId: task.id,
       });
@@ -534,7 +629,7 @@ export class TasksService {
         organisationId: task.organisationId,
         type: NotificationType.TASK_STATUS_CHANGED,
         title: 'Cleanup task in progress',
-        message: `"${task.description}" is now in progress.`,
+        message: `"${task.title}" is now in progress.`,
         relatedEntityType: 'task',
         relatedEntityId: task.id,
       });
@@ -620,7 +715,7 @@ export class TasksService {
             organisationId: task.organisationId,
             type: NotificationType.TASK_COMPLETED,
             title: 'Cleanup task completed',
-            message: `"${task.description}" has been marked complete.`,
+            message: `"${task.title}" has been marked complete.`,
             relatedEntityType: 'task',
             relatedEntityId: task.id,
           })

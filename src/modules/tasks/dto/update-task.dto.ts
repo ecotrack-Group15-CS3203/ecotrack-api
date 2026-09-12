@@ -1,6 +1,8 @@
-import { IsEnum, IsISO8601, IsOptional } from 'class-validator';
+import { IsEnum, IsISO8601, IsOptional, IsUUID } from 'class-validator';
 import { TaskPriority } from '../../../common/enums/task.enum';
 
+/** `assignedTo` here is SRS 3.1.8's reassignment: a new value cancels the
+ * current assignment and creates a new one, rather than adding a second. */
 export class UpdateTaskDto {
   @IsOptional()
   @IsEnum(TaskPriority)
@@ -8,5 +10,9 @@ export class UpdateTaskDto {
 
   @IsOptional()
   @IsISO8601()
-  scheduledAt?: string;
+  dueDate?: string;
+
+  @IsOptional()
+  @IsUUID()
+  assignedTo?: string;
 }

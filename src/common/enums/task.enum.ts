@@ -14,4 +14,7 @@ export enum AssignmentStatus {
   ASSIGNED = 'assigned',
   ACCEPTED = 'accepted',
   DECLINED = 'declined',
+  /** Superseded by a reassignment (SRS 3.1.8) — distinct from DECLINED, which
+   * means the volunteer themselves refused it. */
+  CANCELLED = 'cancelled',
 }

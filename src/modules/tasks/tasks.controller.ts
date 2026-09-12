@@ -23,7 +23,6 @@ import { TaskStatus } from '../../common/enums/task.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { AddTaskNoteDto } from './dto/add-task-note.dto';
-import { AssignVolunteersDto } from './dto/assign-volunteers.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { RespondAssignmentDto } from './dto/respond-assignment.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -88,28 +87,17 @@ export class TasksController {
     return task;
   }
 
+  /** `assignedTo` here is a reassignment (SRS 3.1.8) — cancels the current
+   * assignment and creates a new one; see TasksService.reassign. */
   @Roles(UserRole.ORG_ADMIN)
   @Patch(':taskId')
   update(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @Body() dto: UpdateTaskDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.tasksService.update(organisationId, taskId, dto);
-  }
-
-  @Roles(UserRole.ORG_ADMIN)
-  @Post(':taskId/assignments')
-  assignVolunteers(
-    @Param('organisationId', ParseUUIDPipe) organisationId: string,
-    @Param('taskId', ParseUUIDPipe) taskId: string,
-    @Body() dto: AssignVolunteersDto,
-  ) {
-    return this.tasksService.assignVolunteers(
-      organisationId,
-      taskId,
-      dto.volunteerUserIds,
-    );
+    return this.tasksService.update(organisationId, taskId, dto, user.id);
   }
 
   @Roles(UserRole.VOLUNTEER)

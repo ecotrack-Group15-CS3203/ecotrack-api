@@ -24,9 +24,12 @@ export const tasks = pgTable('tasks', {
   incidentId: uuid('incident_id')
     .notNull()
     .references(() => incidents.id, { onDelete: 'cascade' }),
-  description: text('description').notNull(),
+  title: varchar('title').notNull(),
+  description: text('description'),
   priority: taskPriorityEnum('priority').notNull().default('medium'),
-  scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
+  /** Required at creation per SRS 3.1.6 — was `scheduledAt` (nullable, dropped in
+   * migration 0009 once this column existed to receive the same data shape). */
+  dueDate: timestamp('due_date', { withTimezone: true }).notNull(),
   status: taskStatusEnum('status').notNull().default('pending'),
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
