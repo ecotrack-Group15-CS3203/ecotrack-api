@@ -144,4 +144,20 @@ export class UsersService {
       .returning();
     return updated;
   }
+
+  /**
+   * The join-request flow's counterpart to setMembership()'s homeLocation param:
+   * SRS 3.1.11 saves the location at *submission* time (once geo-eligibility has
+   * already been checked against it), well before approval decides membership, so
+   * it can't ride along on a setMembership() call the way invite-link accept does.
+   */
+  async setHomeLocation(
+    userId: string,
+    homeLocation: { lat: number; lng: number },
+  ): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ homeLocation, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
 }

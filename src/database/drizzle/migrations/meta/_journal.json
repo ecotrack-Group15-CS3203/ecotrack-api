@@ -92,6 +92,27 @@
       "when": 1789221700000,
       "tag": "0012_audit_logs_invite_lookup_escape",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789236823186,
+      "tag": "0013_join_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789236900000,
+      "tag": "0014_join_requests_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1789237000000,
+      "tag": "0015_join_request_cross_org_writes",
+      "breakpoints": true
     }
   ]
 }

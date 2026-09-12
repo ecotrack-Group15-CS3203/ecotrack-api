@@ -22,9 +22,11 @@ import type { AuthenticatedUser } from '../../common/interfaces/authenticated-re
 import { AcceptInviteLinkDto } from './dto/accept-invite-link.dto';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { CreateOrganisationDto } from './dto/create-organisation.dto';
+import { SubmitJoinRequestDto } from './dto/submit-join-request.dto';
 import { UpdateOrganisationDto } from './dto/update-organisation.dto';
 import { InviteLinksService } from './invite-links.service';
 import { InvitationsService } from './invitations.service';
+import { JoinRequestsService } from './join-requests.service';
 import { OrganisationMembersService } from './organisation-members.service';
 import { OrganisationsService } from './organisations.service';
 
@@ -37,6 +39,7 @@ export class OrganisationsController {
     private readonly membersService: OrganisationMembersService,
     private readonly invitationsService: InvitationsService,
     private readonly inviteLinksService: InviteLinksService,
+    private readonly joinRequestsService: JoinRequestsService,
   ) {}
 
   /**
@@ -175,6 +178,29 @@ export class OrganisationsController {
     @Param('invitationId', ParseUUIDPipe) invitationId: string,
   ) {
     return this.invitationsService.resend(organisationId, invitationId);
+  }
+
+  /**
+   * SRS 3.1.11. No @Roles restriction, same reasoning as org registration and
+   * invite-link redemption below — a citizen with no membership is the intended
+   * caller, but the real business rules (geo-eligibility, already a member,
+   * duplicate request) are enforced in the service.
+   *
+   * Rate-limited per SRS 3.4.11, which names this exact endpoint explicitly.
+   */
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('join-request')
+  submitJoinRequest(
+    @Body() dto: SubmitJoinRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.joinRequestsService.submit(user.id, {
+      organisationId: dto.organisationId,
+      lat: dto.lat,
+      lng: dto.lng,
+      message: dto.message,
+    });
   }
 
   /**

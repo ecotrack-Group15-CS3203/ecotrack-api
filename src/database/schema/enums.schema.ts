@@ -57,4 +57,13 @@ export const notificationTypeEnum = pgEnum('notification_type', [
   'task_status_changed',
   'cleanup_scheduled',
   'task_completed',
+  'join_request_submitted',
+  'join_request_approved',
+  'join_request_rejected',
+]);
+
+export const joinRequestStatusEnum = pgEnum('join_request_status', [
+  'pending',
+  'approved',
+  'rejected',
 ]);
