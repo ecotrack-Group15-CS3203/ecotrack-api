@@ -19,6 +19,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { MarkDuplicateDto } from './dto/mark-duplicate.dto';
 import { RejectIncidentDto } from './dto/reject-incident.dto';
+import { UpdateIncidentStageDto } from './dto/update-incident-stage.dto';
 import { IncidentsService } from './incidents.service';
 
 /** Actions on incidents already claimed by a specific org — separate from the
@@ -72,6 +73,25 @@ export class OrgIncidentsController {
       incidentId,
       user.id,
       dto.duplicateOfId,
+    );
+  }
+
+  /** Manual Status Update (SRS 3.1.21) — moves an already-claimed incident to any
+   * of the org's configured stages, forward, backward, or skipping. */
+  @Roles(UserRole.ORG_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @Patch(':incidentId/stage')
+  updateStage(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('incidentId', ParseUUIDPipe) incidentId: string,
+    @Body() dto: UpdateIncidentStageDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.incidentsService.updateStage(
+      organisationId,
+      incidentId,
+      dto,
+      user.id,
     );
   }
 }

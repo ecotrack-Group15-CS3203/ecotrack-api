@@ -64,6 +64,31 @@ export class WorkflowStagesService {
     return stages[1] ?? stages[0];
   }
 
+  findStageBySlug(
+    organisationId: string,
+    slug: string,
+  ): Promise<WorkflowStageRow | undefined> {
+    return this.tenantDb.db.query.workflowStages.findFirst({
+      where: and(
+        eq(workflowStages.organisationId, organisationId),
+        eq(workflowStages.slug, slug),
+      ),
+    });
+  }
+
+  /**
+   * The stage IncidentsService.reject() moves a dismissed incident to (SRS 3.1.5's
+   * "Dismiss" is a stage transition). Looked up by slug rather than a stored
+   * reference: slugs are immutable once created (see uniqueSlug), so this survives a
+   * future rename, but returns undefined — silently, dismissal itself must always
+   * succeed — if the org has since deleted its Dismissed stage.
+   */
+  findDismissedStage(
+    organisationId: string,
+  ): Promise<WorkflowStageRow | undefined> {
+    return this.findStageBySlug(organisationId, 'dismissed');
+  }
+
   async findNextStage(
     organisationId: string,
     currentStage: WorkflowStageRow,

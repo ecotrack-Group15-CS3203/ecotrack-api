@@ -1,10 +1,12 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { NotificationType } from '../../common/enums/notification.enum';
 import {
   IncidentCategory,
@@ -14,7 +16,9 @@ import { incidentImages, incidents } from '../../database/schema';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { WorkflowStagesService } from '../workflow/workflow-stages.service';
 import { CreateIncidentDto } from './dto/create-incident.dto';
+import { UpdateIncidentStageDto } from './dto/update-incident-stage.dto';
 
 export type IncidentRow = typeof incidents.$inferSelect;
 
@@ -24,6 +28,7 @@ export class IncidentsService {
     private readonly tenantDb: TenantDbService,
     private readonly notificationsService: NotificationsService,
     private readonly auditLogService: AuditLogService,
+    private readonly workflowStagesService: WorkflowStagesService,
   ) {}
 
   /**
@@ -153,6 +158,12 @@ export class IncidentsService {
    * Rejection is terminal (a deliberate scope decision — see the plan): the incident
    * stays owned by the claiming org, marked rejected, it does not release back to
    * the pool for another org to re-claim.
+   *
+   * SRS 3.1.5 treats dismissal as a stage transition, so this also moves
+   * currentStageId to the org's Dismissed stage — but that's a bonus on top of the
+   * verificationStatus change, not a precondition for it: if the org has deleted
+   * their Dismissed stage, rejection still succeeds, it just leaves currentStageId
+   * where it was.
    */
   async reject(
     organisationId: string,
@@ -162,12 +173,16 @@ export class IncidentsService {
   ): Promise<IncidentRow> {
     const incident = await this.findScoped(organisationId, incidentId);
     this.assertClaimedAndActive(incident);
+    const dismissedStage =
+      await this.workflowStagesService.findDismissedStage(organisationId);
 
     const [updated] = await this.tenantDb.db
       .update(incidents)
       .set({
         verificationStatus: VerificationStatus.REJECTED,
         rejectionReason: reason,
+        ...(dismissedStage && { currentStageId: dismissedStage.id }),
+        version: sql`${incidents.version} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(incidents.id, incidentId))
@@ -225,6 +240,83 @@ export class IncidentsService {
       entityType: 'incident',
       entityId: incidentId,
       metadata: { duplicateOfId },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Manual Status Update (SRS 3.1.21): moves a claimed incident to any of the org's
+   * configured stages — forward, backward, or skipping, including into or out of a
+   * final stage (reopening). Deliberately does NOT use assertClaimedAndActive: that
+   * helper also blocks a second action on an already-rejected/duplicate incident,
+   * which is right for reject()/markDuplicate() but wrong here — SRS's "Backward
+   * Transitions (Reopening)" explicitly allows moving an incident out of a final
+   * stage via this action, so the only precondition is "claimed at all".
+   */
+  async updateStage(
+    organisationId: string,
+    incidentId: string,
+    dto: UpdateIncidentStageDto,
+    actingUserId: string,
+  ): Promise<IncidentRow> {
+    const incident = await this.findById(incidentId);
+    if (incident.organisationId === null) {
+      throw new ConflictException(
+        'This incident has not been claimed by an organisation yet.',
+      );
+    }
+
+    const stages = await this.workflowStagesService.listStages(organisationId);
+    const targetStage = stages.find((stage) => stage.id === dto.stageId);
+    if (!targetStage) {
+      throw new UnprocessableEntityException({
+        message: `'${dto.stageId}' is not a valid workflow stage for this organisation.`,
+        invalidStageId: dto.stageId,
+      });
+    }
+
+    // No-op: SRS 3.1.21 requires this be accepted (200) without an audit entry or
+    // any downstream effect — including the version bump, so it can't itself trip a
+    // concurrent caller's optimistic-lock check.
+    if (incident.currentStageId === targetStage.id) {
+      return incident;
+    }
+
+    const versionGuard =
+      dto.expectedVersion !== undefined
+        ? and(
+            eq(incidents.id, incidentId),
+            eq(incidents.version, dto.expectedVersion),
+          )
+        : eq(incidents.id, incidentId);
+
+    const [updated] = await this.tenantDb.db
+      .update(incidents)
+      .set({
+        currentStageId: targetStage.id,
+        version: sql`${incidents.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(versionGuard)
+      .returning();
+
+    if (!updated) {
+      throw new ConflictException(
+        'Incident status was modified concurrently; please refresh and retry.',
+      );
+    }
+
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId,
+      action: 'incident.stage_changed',
+      entityType: 'incident',
+      entityId: incidentId,
+      metadata: {
+        previousStageId: incident.currentStageId,
+        newStageId: targetStage.id,
+      },
     });
 
     return updated;
