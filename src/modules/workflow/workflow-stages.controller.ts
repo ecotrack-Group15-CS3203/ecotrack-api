@@ -17,8 +17,8 @@ import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { CreateWorkflowStageDto } from './dto/create-workflow-stage.dto';
-import { MarkFinalDto } from './dto/mark-final.dto';
 import { ReorderWorkflowStagesDto } from './dto/reorder-workflow-stages.dto';
+import { UpdateWorkflowStageDto } from './dto/update-workflow-stage.dto';
 import { WorkflowStagesService } from './workflow-stages.service';
 
 @ApiTags('workflow-stages')
@@ -42,6 +42,7 @@ export class WorkflowStagesController {
     return this.stagesService.createStage({
       organisationId,
       name: dto.name,
+      description: dto.description,
       color: dto.color,
       actingUserId: user.id,
     });
@@ -61,16 +62,21 @@ export class WorkflowStagesController {
     );
   }
 
+  /**
+   * Registered after `reorder` above, deliberately: Nest/Express matches routes in
+   * declaration order, and `reorder` is a literal segment that would otherwise be
+   * swallowed by this one-segment `:stageId` param route.
+   */
   @HttpCode(HttpStatus.OK)
-  @Patch(':stageId/final')
-  async markFinal(
+  @Patch(':stageId')
+  async update(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Param('stageId', ParseUUIDPipe) stageId: string,
-    @Body() dto: MarkFinalDto,
+    @Body() dto: UpdateWorkflowStageDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     await this.stagesService.findScoped(organisationId, stageId);
-    return this.stagesService.markFinal(stageId, dto.isFinal, user.id);
+    return this.stagesService.updateStage(stageId, dto, user.id);
   }
 
   @Delete(':stageId')

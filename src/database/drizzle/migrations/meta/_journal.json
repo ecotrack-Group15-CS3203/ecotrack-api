@@ -36,6 +36,13 @@
       "when": 1786361371900,
       "tag": "0004_notification_dispatch_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789215672031,
+      "tag": "0005_workflow_stage_description",
+      "breakpoints": true
     }
   ]
 }

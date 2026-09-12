@@ -1,0 +1,1 @@
+ALTER TABLE "workflow_stages" ADD COLUMN "description" text;

@@ -1,9 +1,13 @@
-import { IsString, Matches, MinLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MinLength } from 'class-validator';
 
 export class CreateWorkflowStageDto {
   @IsString()
   @MinLength(1)
   name: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
 
   /** Hex color for UI badges (SRS 3.1.13's Workflow Editor stage cards). */
   @IsString()

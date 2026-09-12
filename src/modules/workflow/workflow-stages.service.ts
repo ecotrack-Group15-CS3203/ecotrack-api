@@ -164,6 +164,7 @@ export class WorkflowStagesService {
   async createStage(data: {
     organisationId: string;
     name: string;
+    description?: string;
     color: string;
     actingUserId: string;
   }): Promise<WorkflowStageRow> {
@@ -175,6 +176,7 @@ export class WorkflowStagesService {
         organisationId: data.organisationId,
         name: data.name,
         slug,
+        description: data.description ?? null,
         color: data.color,
         position: stages.length,
         isFinal: false,
@@ -227,24 +229,43 @@ export class WorkflowStagesService {
     return updated.sort((a, b) => a.position - b.position);
   }
 
-  async markFinal(
+  /**
+   * Covers name/description/colour/final in one endpoint (SRS 3.1.13: "add, rename,
+   * reorder, and delete... without any code changes"). `slug` is not settable here —
+   * see UpdateWorkflowStageDto's doc comment — so there's nothing to guard against
+   * beyond what the DTO/ValidationPipe already reject.
+   */
+  async updateStage(
     id: string,
-    isFinal: boolean,
+    data: {
+      name?: string;
+      description?: string;
+      color?: string;
+      isFinal?: boolean;
+    },
     actingUserId: string,
   ): Promise<WorkflowStageRow> {
     const stage = await this.findById(id);
     const [saved] = await this.tenantDb.db
       .update(workflowStages)
-      .set({ isFinal, updatedAt: new Date() })
+      .set({
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.description !== undefined && {
+          description: data.description,
+        }),
+        ...(data.color !== undefined && { color: data.color }),
+        ...(data.isFinal !== undefined && { isFinal: data.isFinal }),
+        updatedAt: new Date(),
+      })
       .where(eq(workflowStages.id, id))
       .returning();
     await this.auditLogService.record({
       organisationId: stage.organisationId,
       actingUserId,
-      action: 'workflow_stage.marked_final',
+      action: 'workflow_stage.updated',
       entityType: 'workflow_stage',
       entityId: id,
-      metadata: { isFinal },
+      metadata: data,
     });
     return saved;
   }
