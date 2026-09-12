@@ -3,7 +3,6 @@ import { eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from './schema';
-import { toGeographyPoint } from './schema/columns.helpers';
 
 /**
  * Seeds the mid-eval demo dataset:
@@ -140,7 +139,7 @@ async function run() {
       name: SEED_ORG_NAME,
       description: 'Dev seed organisation',
       contactEmail: 'admin@example.com',
-      serviceAreaCenter: toGeographyPoint(CENTER.lat, CENTER.lng),
+      serviceAreaCenter: CENTER,
       serviceAreaRadiusKm: SERVICE_RADIUS_KM,
     })
     .returning();
@@ -205,10 +204,10 @@ async function run() {
         category: demo.category,
         severity: demo.severity,
         address: demo.address,
-        location: toGeographyPoint(
-          CENTER.lat + demo.offset.lat,
-          CENTER.lng + demo.offset.lng,
-        ),
+        location: {
+          lat: CENTER.lat + demo.offset.lat,
+          lng: CENTER.lng + demo.offset.lng,
+        },
       })
       .returning();
 

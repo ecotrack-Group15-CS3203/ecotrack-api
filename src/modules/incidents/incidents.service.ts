@@ -11,7 +11,6 @@ import {
   VerificationStatus,
 } from '../../common/enums/incident.enum';
 import { incidentImages, incidents } from '../../database/schema';
-import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -51,7 +50,7 @@ export class IncidentsService {
         category: dto.category ?? IncidentCategory.OTHER,
         // Wire field is `urgency`, column is `severity` — same values, see the DTO.
         severity: dto.urgency,
-        location: toGeographyPoint(dto.location.lat, dto.location.lng),
+        location: { lat: dto.location.lat, lng: dto.location.lng },
         address: dto.address ?? null,
       })
       .returning();

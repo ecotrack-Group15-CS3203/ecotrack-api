@@ -9,6 +9,7 @@ import {
   users,
   workflowStages,
 } from '../../database/schema';
+import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
 
 @Injectable()
@@ -93,6 +94,12 @@ export class DashboardService {
 
     let awaitingClaimInServiceArea = 0;
     if (org?.serviceAreaCenter && org.serviceAreaRadiusKm) {
+      // org.serviceAreaCenter is {lat,lng} once decoded by fromDriver — rebuild EWKT
+      // to interpolate it into the raw ::geography cast below.
+      const centerEwkt = toGeographyPoint(
+        org.serviceAreaCenter.lat,
+        org.serviceAreaCenter.lng,
+      );
       const [{ poolCount }] = (
         await this.tenantDb.db.execute<{
           [key: string]: unknown;
@@ -101,7 +108,7 @@ export class DashboardService {
           SELECT count(*)::int AS "poolCount"
           FROM incidents
           WHERE organisation_id IS NULL
-            AND ST_DWithin(location, ${org.serviceAreaCenter}::geography, ${org.serviceAreaRadiusKm * 1000})
+            AND ST_DWithin(location, ${centerEwkt}::geography, ${org.serviceAreaRadiusKm * 1000})
         `)
       ).rows;
       awaitingClaimInServiceArea = poolCount;

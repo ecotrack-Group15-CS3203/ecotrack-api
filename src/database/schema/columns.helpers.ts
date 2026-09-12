@@ -11,6 +11,34 @@ export const baseColumns = {
     .defaultNow(),
 };
 
+export interface GeographyPoint {
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Decodes a (E)WKB-as-hex Point, the wire format Postgres/PostGIS returns geography
+ * columns in by default (e.g. "0101000020E6100000..."). Handles both byte orders,
+ * though Postgres always emits little-endian in practice; the SRID flag (0x20000000
+ * on the type word) is read but not validated against 4326, since that's already
+ * DB-engine-enforced by the CHECK constraint in migration 0001.
+ *
+ * Layout: 1 byte byte-order, 4 bytes type+flags, [4 bytes SRID if flagged],
+ * 8 bytes X (lng), 8 bytes Y (lat) — all in the declared byte order.
+ */
+function parseWkbPoint(hex: string): GeographyPoint {
+  const buf = Buffer.from(hex, 'hex');
+  const little = buf.readUInt8(0) === 1;
+  const typeAndFlags = little ? buf.readUInt32LE(1) : buf.readUInt32BE(1);
+  const hasSrid = (typeAndFlags & 0x20000000) !== 0;
+  const offset = hasSrid ? 9 : 5;
+  const lng = little ? buf.readDoubleLE(offset) : buf.readDoubleBE(offset);
+  const lat = little
+    ? buf.readDoubleLE(offset + 8)
+    : buf.readDoubleBE(offset + 8);
+  return { lat, lng };
+}
+
 /**
  * A PostGIS `geography` column, always holding a Point in SRID 4326.
  *
@@ -28,33 +56,37 @@ export const baseColumns = {
  * src/database/drizzle/migrations/0001_constraints_and_indexes.sql) — arguably more
  * explicit than a type modifier anyway, and it's DB-engine-enforced either way.
  *
- * Values are written/read as EWKT text (`SRID=4326;POINT(lng lat)`), which
- * Postgres/PostGIS parses and serializes directly on INSERT/UPDATE — no WKB/hex
- * decoding needed on our side for writes.
+ * Writes: `toDriver` expects the EWKT text `toGeographyPoint()` builds
+ * (`SRID=4326;POINT(lng lat)`), which Postgres/PostGIS parses directly on
+ * INSERT/UPDATE.
  *
- * Reads: Postgres returns geography columns as WKB hex by default over the wire, not
- * EWKT, so `fromDriver` intentionally does NOT try to parse it into {lat,lng} — that
- * would require a WKB parser we don't have. Any query that needs the actual
- * coordinates back out (map display, distance text, etc.) should select
- * `ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng` explicitly in a
- * raw SQL fragment instead of relying on this column's automatic deserialization.
- * Spatial predicates (ST_DWithin, ST_Distance) are likewise always raw `sql` fragments
- * in the service layer, not something the ORM abstracts.
+ * Reads: Postgres returns geography columns as WKB hex over the wire, not EWKT, so
+ * `fromDriver` decodes it with `parseWkbPoint` into `{lat, lng}` — every ORM read of
+ * a geography column (e.g. `organisations.serviceAreaCenter`, `incidents.location`)
+ * comes back as usable coordinates, not a hex string.
+ *
+ * This does NOT change how spatial predicates are computed — `ST_DWithin`/
+ * `ST_Distance`/`ST_Y`/`ST_X` are still always raw `sql` fragments in the service
+ * layer. But it means a `{lat,lng}` value read this way can no longer be
+ * re-interpolated as `${value}::geography` in a raw SQL fragment (it's an object, not
+ * driver data) — rebuild the EWKT with `toGeographyPoint(value.lat, value.lng)`
+ * first. See incident-pool.service.ts and dashboard.service.ts for the two places
+ * that do this.
  */
 export const geographyPoint = (columnName: string) =>
-  customType<{ data: string; driverData: string }>({
+  customType<{ data: GeographyPoint; driverData: string }>({
     dataType() {
       return 'geography';
     },
-    toDriver(value: string) {
-      return value; // caller passes 'SRID=4326;POINT(lng lat)' directly
+    toDriver(value: GeographyPoint) {
+      return toGeographyPoint(value.lat, value.lng);
     },
     fromDriver(value: string) {
-      return value; // raw driver value, not decoded — see doc comment above
+      return parseWkbPoint(value);
     },
   })(columnName);
 
-/** Builds the EWKT string geographyPoint expects from separate lat/lng inputs. */
+/** Builds the EWKT string Postgres expects on write, from separate lat/lng inputs. */
 export function toGeographyPoint(lat: number, lng: number): string {
   return `SRID=4326;POINT(${lng} ${lat})`;
 }

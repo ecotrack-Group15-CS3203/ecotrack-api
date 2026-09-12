@@ -8,6 +8,7 @@ import {
 import { eq, sql } from 'drizzle-orm';
 import { NotificationType } from '../../common/enums/notification.enum';
 import { incidents, organisations } from '../../database/schema';
+import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -50,16 +51,23 @@ export class IncidentPoolService {
         'This organisation has no service area configured yet',
       );
     }
+    // org.serviceAreaCenter comes back from the ORM as {lat,lng} (fromDriver decodes
+    // the WKB the driver returns) — rebuild EWKT to interpolate it into a raw ::geography
+    // cast below; the object itself can't bind as a SQL parameter.
+    const centerEwkt = toGeographyPoint(
+      org.serviceAreaCenter.lat,
+      org.serviceAreaCenter.lng,
+    );
 
     const result = await this.tenantDb.db.execute<PoolIncidentRow>(sql`
       SELECT
         id, title, description, category, severity, address, created_at AS "createdAt",
         ST_Y(location::geometry) AS lat,
         ST_X(location::geometry) AS lng,
-        ST_Distance(location, ${org.serviceAreaCenter}::geography) AS "distanceMeters"
+        ST_Distance(location, ${centerEwkt}::geography) AS "distanceMeters"
       FROM incidents
       WHERE organisation_id IS NULL
-        AND ST_DWithin(location, ${org.serviceAreaCenter}::geography, ${org.serviceAreaRadiusKm * 1000})
+        AND ST_DWithin(location, ${centerEwkt}::geography, ${org.serviceAreaRadiusKm * 1000})
       ORDER BY "distanceMeters" ASC
     `);
     return result.rows;
@@ -104,7 +112,7 @@ export class IncidentPoolService {
       }>(sql`
         SELECT ST_DWithin(
           (SELECT location FROM incidents WHERE id = ${incidentId}),
-          ${org.serviceAreaCenter}::geography,
+          ${toGeographyPoint(org.serviceAreaCenter.lat, org.serviceAreaCenter.lng)}::geography,
           ${org.serviceAreaRadiusKm * 1000}
         ) AS within
       `)

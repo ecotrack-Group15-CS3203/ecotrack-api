@@ -8,7 +8,6 @@ import { asc, eq } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../database/drizzle.provider';
 import type { DrizzleDb } from '../../database/drizzle.provider';
 import { organisations } from '../../database/schema';
-import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -101,10 +100,7 @@ export class OrganisationsService {
         name: data.name,
         description: data.description ?? null,
         contactEmail: data.contactEmail,
-        serviceAreaCenter: toGeographyPoint(
-          data.serviceArea.center.lat,
-          data.serviceArea.center.lng,
-        ),
+        serviceAreaCenter: data.serviceArea.center,
         serviceAreaRadiusKm: data.serviceArea.radiusKm,
       })
       .returning();
@@ -184,10 +180,7 @@ export class OrganisationsService {
           contactEmail: data.contactEmail,
         }),
         ...(data.serviceArea !== undefined && {
-          serviceAreaCenter: toGeographyPoint(
-            data.serviceArea.center.lat,
-            data.serviceArea.center.lng,
-          ),
+          serviceAreaCenter: data.serviceArea.center,
           serviceAreaRadiusKm: data.serviceArea.radiusKm,
         }),
         updatedAt: new Date(),
