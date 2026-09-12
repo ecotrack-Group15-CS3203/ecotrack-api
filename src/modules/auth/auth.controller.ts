@@ -7,8 +7,10 @@ import {
   Param,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
@@ -56,12 +58,19 @@ export class AuthController {
     return this.authService.registerPushToken(user.id, dto.pushToken);
   }
 
+  // Rate-limited per SRS 3.4.11 — a public, token-guessable lookup is exactly the
+  // enumeration risk that requirement targets. Applied locally, not globally; see
+  // app.module.ts.
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Public()
   @Get('invitations/:token')
   getInvitationInfo(@Param('token') token: string) {
     return this.invitationsService.getInvitationInfo(token);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('invitations/:token/accept')
   acceptInvitation(

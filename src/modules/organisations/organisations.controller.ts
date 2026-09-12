@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -38,7 +40,12 @@ export class OrganisationsController {
    * Deliberately has no @Roles: any authenticated user may register an organisation
    * and becomes its first org_admin (SRS 3.1.14). The one-org-per-user rule is
    * enforced in the service against the caller's DB-resolved membership, not here.
+   *
+   * Rate-limited per SRS 3.4.11 (new-tenant registration is brute-force/enumeration
+   * sensitive) — applied locally rather than globally, see app.module.ts.
    */
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post()
   create(
     @Body() dto: CreateOrganisationDto,

@@ -1,7 +1,7 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
 import { AppController } from './app.controller';
@@ -46,6 +46,10 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
         }),
       },
     }),
+    // Not applied globally (see the APP_GUARD list below) — SRS 3.4.11 scopes
+    // rate limiting to specific auth-sensitive endpoints, not every route. Still
+    // registered here so those routes' local `@UseGuards(ThrottlerGuard)` +
+    // `@Throttle(...)` have a storage provider and a 'default' config to fall back on.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }]),
     UsersModule,
     OrganisationsModule,
@@ -70,10 +74,13 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
         transform: true,
       }),
     },
-    // Order matters: rate-limit -> authenticate -> resolve tenant -> check role.
-    // ThrottlerGuard runs first specifically so it also covers @Public() routes
-    // (registration-adjacent flows like invitation redemption).
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Order matters: authenticate -> resolve tenant -> check role. Rate limiting is
+    // NOT global (SRS 3.4.11 scopes it to specific auth-sensitive endpoints, not
+    // every route) — those endpoints apply `ThrottlerGuard` locally via
+    // `@UseGuards`. Nest runs global guards before method-level ones, so on an
+    // authenticated route the throttle check happens after JwtAuthGuard/TenantGuard/
+    // RolesGuard, not before; this only matters for `@Public()` routes, where those
+    // three are no-ops anyway (see JwtAuthGuard.canActivate).
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: TenantGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
