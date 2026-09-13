@@ -12,6 +12,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { CreateIncidentDto } from './dto/create-incident.dto';
 import { NearbyIncidentsQuery } from './dto/nearby-incidents.query';
 import { IncidentsService } from './incidents.service';
@@ -42,8 +43,11 @@ export class IncidentsController {
   }
 
   @Get('mine')
-  findMine(@CurrentUser() user: AuthenticatedUser) {
-    return this.incidentsService.findMyReports(user.id);
+  findMine(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.incidentsService.findMyReports(user.id, query);
   }
 
   /**

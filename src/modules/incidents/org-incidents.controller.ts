@@ -14,9 +14,9 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
-import { VerificationStatus } from '../../common/enums/incident.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
+import { ListOrgIncidentsQuery } from './dto/list-org-incidents.query';
 import { MarkDuplicateDto } from './dto/mark-duplicate.dto';
 import { RejectIncidentDto } from './dto/reject-incident.dto';
 import { UpdateIncidentStageDto } from './dto/update-incident-stage.dto';
@@ -34,9 +34,13 @@ export class OrgIncidentsController {
   @Get()
   findAll(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
-    @Query('status') status?: VerificationStatus,
+    @Query() query: ListOrgIncidentsQuery,
   ) {
-    return this.incidentsService.listForOrg(organisationId, status);
+    return this.incidentsService.listForOrg(
+      organisationId,
+      query,
+      query.status,
+    );
   }
 
   @Roles(UserRole.ORG_ADMIN)

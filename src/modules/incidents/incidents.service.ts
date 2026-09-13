@@ -7,6 +7,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import {
+  Paginated,
+  PaginationQueryDto,
+} from '../../common/dto/pagination-query.dto';
 import { NotificationType } from '../../common/enums/notification.enum';
 import {
   IncidentCategory,
@@ -40,6 +44,22 @@ export interface NearbyIncidentRow {
   lng: number;
   distanceMeters: number;
   thumbnailUrl: string | null;
+}
+
+/** The detail-view counterpart to NearbyIncidentRow's list projection — see
+ * findByIdWithImages's public fallback below for what each omission protects. */
+export interface PublicIncidentDetail {
+  [key: string]: unknown;
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  severity: string;
+  address: string | null;
+  createdAt: Date;
+  claimed: boolean;
+  lat: number;
+  lng: number;
 }
 
 @Injectable()
@@ -100,33 +120,39 @@ export class IncidentsService {
 
   async findMyReports(
     reportedByUserId: string,
-  ): Promise<(IncidentRow & { images: { id: string; url: string }[] })[]> {
-    const reports = await this.tenantDb.db.query.incidents.findMany({
-      where: eq(incidents.reportedByUserId, reportedByUserId),
-      orderBy: desc(incidents.createdAt),
-    });
-    if (reports.length === 0) return [];
+    { page, limit }: PaginationQueryDto,
+  ): Promise<
+    Paginated<IncidentRow & { images: { id: string; url: string }[] }>
+  > {
+    const where = eq(incidents.reportedByUserId, reportedByUserId);
+    const [reports, [{ count: total }]] = await Promise.all([
+      this.tenantDb.db.query.incidents.findMany({
+        where,
+        orderBy: desc(incidents.createdAt),
+        limit,
+        offset: (page - 1) * limit,
+      }),
+      this.tenantDb.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(incidents)
+        .where(where),
+    ]);
+    if (reports.length === 0) return { items: [], total, page, limit };
     const images = await this.tenantDb.db.query.incidentImages.findMany({
       where: inArray(
         incidentImages.incidentId,
         reports.map((r) => r.id),
       ),
     });
-    return reports.map((report) => ({
+    const items = reports.map((report) => ({
       ...report,
       images: images
         .filter((img) => img.incidentId === report.id)
         .map((img) => ({ id: img.id, url: img.url })),
     }));
+    return { items, total, page, limit };
   }
 
-  /**
-   * No manual visibility check needed: RLS (migration 0003) already restricts which
-   * rows this query can even see — an org_admin sees their own org's claimed
-   * incidents plus the whole pool, a citizen sees their own reports (claimed or not)
-   * plus the pool, a platform admin sees everything. A row that isn't visible simply
-   * isn't returned, which is exactly "not found" from the caller's perspective.
-   */
   /**
    * SRS 3.1.3: the citizen hazard map. Deliberately NOT tenant-filtered — it shows
    * incidents near a point whoever (if anyone) has claimed them.
@@ -176,19 +202,78 @@ export class IncidentsService {
     return result.rows;
   }
 
-  async findByIdWithImages(
-    id: string,
-  ): Promise<IncidentRow & { images: { id: string; url: string }[] }> {
-    const incident = await this.findById(id);
-    const images = await this.tenantDb.db.query.incidentImages.findMany({
-      where: eq(incidentImages.incidentId, id),
-    });
-    return {
-      ...incident,
-      images: images.map((img) => ({ id: img.id, url: img.url })),
-    };
+  /**
+   * Tapping a pin on the public map (findNearby, above) needs to open a detail view
+   * even for an incident the caller's normal RLS session can't see — that's the
+   * whole point of the map showing it in the first place. Falls back to the same
+   * public_map_read escape and the same eligibility rule (non-dismissed) findNearby
+   * uses, rather than a second, differently-shaped route.
+   *
+   * The `visibility` discriminator tells the client which shape it got: 'full' is
+   * every field the org/reporter view already returned before this method changed;
+   * 'public' deliberately omits reportedByUserId, organisationId, claimedByUserId,
+   * verificationStatus, rejectionReason, duplicateOfId and version — every field
+   * that names or implicates a specific person or tenant. Photos ARE included: each
+   * one is independently re-authorized by MediaController's own public_map_read
+   * fallback, so withholding the list here would just make the working ones
+   * undiscoverable rather than actually protecting anything.
+   */
+  async findByIdWithImages(id: string): Promise<
+    | (IncidentRow & {
+        images: { id: string; url: string }[];
+        visibility: 'full';
+      })
+    | (PublicIncidentDetail & { visibility: 'public' })
+  > {
+    try {
+      const incident = await this.findById(id);
+      const images = await this.tenantDb.db.query.incidentImages.findMany({
+        where: eq(incidentImages.incidentId, id),
+      });
+      return {
+        ...incident,
+        images: images.map((img) => ({ id: img.id, url: img.url })),
+        visibility: 'full',
+      };
+    } catch (err) {
+      if (!(err instanceof NotFoundException)) throw err;
+
+      await this.tenantDb.db.execute(
+        sql`SELECT set_config('app.public_map_read', 'true', true)`,
+      );
+      const [publicIncident] = (
+        await this.tenantDb.db.execute<PublicIncidentDetail>(sql`
+          SELECT
+            i.id, i.title, i.description, i.category, i.severity, i.address,
+            i.created_at AS "createdAt",
+            (i.organisation_id IS NOT NULL) AS claimed,
+            ST_Y(i.location::geometry) AS lat,
+            ST_X(i.location::geometry) AS lng
+          FROM incidents i
+          WHERE i.id = ${id}
+            AND (i.verification_status IS NULL OR i.verification_status = 'approved')
+        `)
+      ).rows;
+      if (!publicIncident) throw err;
+
+      const images = await this.tenantDb.db.query.incidentImages.findMany({
+        where: eq(incidentImages.incidentId, id),
+      });
+      return {
+        ...publicIncident,
+        images: images.map((img) => ({ id: img.id, url: img.url })),
+        visibility: 'public',
+      };
+    }
   }
 
+  /**
+   * No manual visibility check needed: RLS (migration 0003) already restricts which
+   * rows this query can even see — an org_admin sees their own org's claimed
+   * incidents plus the whole pool, a citizen sees their own reports (claimed or not)
+   * plus the pool, a platform admin sees everything. A row that isn't visible simply
+   * isn't returned, which is exactly "not found" from the caller's perspective.
+   */
   async findById(id: string): Promise<IncidentRow> {
     const incident = await this.tenantDb.db.query.incidents.findFirst({
       where: eq(incidents.id, id),
@@ -245,19 +330,31 @@ export class IncidentsService {
     });
   }
 
-  listForOrg(
+  async listForOrg(
     organisationId: string,
+    { page, limit }: PaginationQueryDto,
     status?: VerificationStatus,
-  ): Promise<IncidentRow[]> {
-    return this.tenantDb.db.query.incidents.findMany({
-      where: status
-        ? and(
-            eq(incidents.organisationId, organisationId),
-            eq(incidents.verificationStatus, status),
-          )
-        : eq(incidents.organisationId, organisationId),
-      orderBy: desc(incidents.createdAt),
-    });
+  ): Promise<Paginated<IncidentRow>> {
+    const where = status
+      ? and(
+          eq(incidents.organisationId, organisationId),
+          eq(incidents.verificationStatus, status),
+        )
+      : eq(incidents.organisationId, organisationId);
+
+    const [items, [{ count: total }]] = await Promise.all([
+      this.tenantDb.db.query.incidents.findMany({
+        where,
+        orderBy: desc(incidents.createdAt),
+        limit,
+        offset: (page - 1) * limit,
+      }),
+      this.tenantDb.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(incidents)
+        .where(where),
+    ]);
+    return { items, total, page, limit };
   }
 
   /**
