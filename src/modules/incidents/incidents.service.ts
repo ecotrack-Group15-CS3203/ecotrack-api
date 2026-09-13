@@ -13,6 +13,7 @@ import {
   VerificationStatus,
 } from '../../common/enums/incident.enum';
 import { incidentImages, incidents } from '../../database/schema';
+import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -21,6 +22,25 @@ import { CreateIncidentDto } from './dto/create-incident.dto';
 import { UpdateIncidentStageDto } from './dto/update-incident-stage.dto';
 
 export type IncidentRow = typeof incidents.$inferSelect;
+
+/**
+ * The reduced projection returned by the public map query — deliberately carries no
+ * description, address, reporter or organisation id, since this is the one incident
+ * read that crosses tenant boundaries.
+ */
+export interface NearbyIncidentRow {
+  [key: string]: unknown;
+  id: string;
+  title: string;
+  category: string;
+  severity: string;
+  createdAt: Date;
+  claimed: boolean;
+  lat: number;
+  lng: number;
+  distanceMeters: number;
+  thumbnailUrl: string | null;
+}
 
 @Injectable()
 export class IncidentsService {
@@ -107,6 +127,55 @@ export class IncidentsService {
    * plus the pool, a platform admin sees everything. A row that isn't visible simply
    * isn't returned, which is exactly "not found" from the caller's perspective.
    */
+  /**
+   * SRS 3.1.3: the citizen hazard map. Deliberately NOT tenant-filtered — it shows
+   * incidents near a point whoever (if anyone) has claimed them.
+   *
+   * Two things make that safe. First, the projection below is deliberately reduced:
+   * no description, address, reporter or organisation id ever leaves this method, so
+   * a cross-tenant read surfaces hazard awareness and nothing else. Second, the
+   * `app.public_map_read` policy it relies on is SELECT-only (migration 0018), so it
+   * cannot be leveraged into a write no matter what else runs in this transaction.
+   *
+   * Dismissed reports are excluded — a rejected or duplicate report is not a live
+   * hazard and has no business on the map.
+   */
+  async findNearby(
+    lat: number,
+    lng: number,
+    radiusMeters: number,
+    limit = 200,
+  ): Promise<NearbyIncidentRow[]> {
+    const point = toGeographyPoint(lat, lng);
+
+    // Transaction-local (the `true` third argument), so it reverts at COMMIT. This is
+    // the last statement in the request, so nothing else runs under the widened read.
+    await this.tenantDb.db.execute(
+      sql`SELECT set_config('app.public_map_read', 'true', true)`,
+    );
+
+    const result = await this.tenantDb.db.execute<NearbyIncidentRow>(sql`
+      SELECT
+        i.id, i.title, i.category, i.severity, i.created_at AS "createdAt",
+        (i.organisation_id IS NOT NULL) AS claimed,
+        ST_Y(i.location::geometry) AS lat,
+        ST_X(i.location::geometry) AS lng,
+        ST_Distance(i.location, ${point}::geography) AS "distanceMeters",
+        (
+          SELECT url FROM incident_images
+          WHERE incident_id = i.id
+          ORDER BY created_at ASC
+          LIMIT 1
+        ) AS "thumbnailUrl"
+      FROM incidents i
+      WHERE ST_DWithin(i.location, ${point}::geography, ${radiusMeters})
+        AND (i.verification_status IS NULL OR i.verification_status = 'approved')
+      ORDER BY "distanceMeters" ASC
+      LIMIT ${limit}
+    `);
+    return result.rows;
+  }
+
   async findByIdWithImages(
     id: string,
   ): Promise<IncidentRow & { images: { id: string; url: string }[] }> {

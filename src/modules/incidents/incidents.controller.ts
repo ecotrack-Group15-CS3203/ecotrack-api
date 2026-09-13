@@ -5,6 +5,7 @@ import {
   ParseUUIDPipe,
   Post,
   Body,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -12,6 +13,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { CreateIncidentDto } from './dto/create-incident.dto';
+import { NearbyIncidentsQuery } from './dto/nearby-incidents.query';
 import { IncidentsService } from './incidents.service';
 
 /**
@@ -42,6 +44,17 @@ export class IncidentsController {
   @Get('mine')
   findMine(@CurrentUser() user: AuthenticatedUser) {
     return this.incidentsService.findMyReports(user.id);
+  }
+
+  /**
+   * SRS 3.1.3's citizen hazard map. No @Roles — every authenticated role may see
+   * nearby hazards, which is the point. Must stay declared above the `:incidentId`
+   * route below: Nest matches in declaration order, so registering it after would
+   * let ParseUUIDPipe claim 'nearby' and 400 on it.
+   */
+  @Get('nearby')
+  findNearby(@Query() query: NearbyIncidentsQuery) {
+    return this.incidentsService.findNearby(query.lat, query.lng, query.radius);
   }
 
   /**

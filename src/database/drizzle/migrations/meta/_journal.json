@@ -127,6 +127,20 @@
       "when": 1789239400000,
       "tag": "0017_events_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789239500000,
+      "tag": "0018_incidents_public_map",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789239600000,
+      "tag": "0019_organisation_search_index",
+      "breakpoints": true
     }
   ]
 }
