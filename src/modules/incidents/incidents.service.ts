@@ -49,7 +49,10 @@ export class IncidentsService {
       .values({
         reportedByUserId,
         title: dto.title,
-        description: dto.description,
+        // Optional on the wire (SRS 3.1.2) but NOT NULL in the column — an
+        // omitted description and a blank one mean the same thing here, so
+        // there's nothing a nullable column would distinguish.
+        description: dto.description ?? '',
         // The mobile wizard collects no category; `other` keeps the column non-null
         // without inventing a classification nobody supplied.
         category: dto.category ?? IncidentCategory.OTHER,

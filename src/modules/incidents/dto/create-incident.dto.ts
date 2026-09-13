@@ -7,6 +7,7 @@ import {
   IsLongitude,
   IsOptional,
   IsString,
+  MaxLength,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -33,11 +34,14 @@ export class IncidentLocationDto {
 export class CreateIncidentDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(120)
   title: string;
 
+  /** Optional per SRS 3.1.2 — the wizard's description field can be left blank. */
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  description: string;
+  @MaxLength(1000)
+  description?: string;
 
   /**
    * The wire field is `urgency` because that is the client's vocabulary; it is stored
