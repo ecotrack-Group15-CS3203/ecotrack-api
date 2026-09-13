@@ -61,12 +61,11 @@ export class NotificationsService {
     });
 
     // Fire-and-forget: push delivery must never block or fail the caller.
-    void this.pushIfEligible(
-      data.userId,
-      data.type,
-      data.title,
-      data.message,
-    ).catch(() => undefined);
+    void this.pushIfEligible(data.userId, data.type, data.title, data.message, {
+      type: data.type,
+      relatedEntityType: data.relatedEntityType ?? null,
+      relatedEntityId: data.relatedEntityId ?? null,
+    }).catch(() => undefined);
   }
 
   private async pushIfEligible(
@@ -74,6 +73,8 @@ export class NotificationsService {
     type: NotificationType,
     title: string,
     body: string,
+    /** Routing payload the mobile client reads on tap to open the right screen. */
+    payload: Record<string, unknown>,
   ): Promise<void> {
     const user = await this.usersService.findById(userId);
     if (!user?.pushToken) return;
@@ -84,7 +85,12 @@ export class NotificationsService {
     const enabled = preferenceKey ? prefs[preferenceKey] : true;
     if (!enabled) return;
 
-    await this.pushNotificationsService.send(user.pushToken, title, body);
+    await this.pushNotificationsService.send(
+      user.pushToken,
+      title,
+      body,
+      payload,
+    );
   }
 
   listForUser(userId: string): Promise<NotificationRow[]> {
