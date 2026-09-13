@@ -155,6 +155,20 @@
       "when": 1789239800000,
       "tag": "0021_audit_logs_immutable",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789239900000,
+      "tag": "0022_pagination_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789240000000,
+      "tag": "0023_fix_escape_flag_boolean_cast",
+      "breakpoints": true
     }
   ]
 }

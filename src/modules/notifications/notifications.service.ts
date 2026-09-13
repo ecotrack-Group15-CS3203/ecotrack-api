@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import {
+  Paginated,
+  PaginationQueryDto,
+} from '../../common/dto/pagination-query.dto';
 import { NotificationType } from '../../common/enums/notification.enum';
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -98,11 +102,24 @@ export class NotificationsService {
     );
   }
 
-  listForUser(userId: string): Promise<NotificationRow[]> {
-    return this.tenantDb.db.query.notifications.findMany({
-      where: eq(notifications.userId, userId),
-      orderBy: desc(notifications.createdAt),
-    });
+  async listForUser(
+    userId: string,
+    { page, limit }: PaginationQueryDto,
+  ): Promise<Paginated<NotificationRow>> {
+    const where = eq(notifications.userId, userId);
+    const [items, [{ count: total }]] = await Promise.all([
+      this.tenantDb.db.query.notifications.findMany({
+        where,
+        orderBy: desc(notifications.createdAt),
+        limit,
+        offset: (page - 1) * limit,
+      }),
+      this.tenantDb.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(notifications)
+        .where(where),
+    ]);
+    return { items, total, page, limit };
   }
 
   async markRead(userId: string, id: string): Promise<NotificationRow> {

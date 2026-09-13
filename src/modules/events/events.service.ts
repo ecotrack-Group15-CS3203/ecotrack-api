@@ -5,7 +5,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import {
+  Paginated,
+  PaginationQueryDto,
+} from '../../common/dto/pagination-query.dto';
 import { VerificationStatus } from '../../common/enums/incident.enum';
 import { NotificationType } from '../../common/enums/notification.enum';
 import {
@@ -157,17 +161,29 @@ export class EventsService {
   async listForOrganisation(
     organisationId: string,
     userId: string,
+    { page, limit }: PaginationQueryDto,
     status?: EventStatus,
-  ): Promise<(EventRow & { rsvpedByMe: boolean })[]> {
-    const rows = await this.tenantDb.db.query.events.findMany({
-      where: status
-        ? and(
-            eq(events.organisationId, organisationId),
-            eq(events.status, status),
-          )
-        : eq(events.organisationId, organisationId),
-    });
-    if (rows.length === 0) return [];
+  ): Promise<Paginated<EventRow & { rsvpedByMe: boolean }>> {
+    const where = status
+      ? and(
+          eq(events.organisationId, organisationId),
+          eq(events.status, status),
+        )
+      : eq(events.organisationId, organisationId);
+
+    const [rows, [{ count: total }]] = await Promise.all([
+      this.tenantDb.db.query.events.findMany({
+        where,
+        orderBy: asc(events.scheduledAt),
+        limit,
+        offset: (page - 1) * limit,
+      }),
+      this.tenantDb.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(events)
+        .where(where),
+    ]);
+    if (rows.length === 0) return { items: [], total, page, limit };
 
     const mine = await this.tenantDb.db.query.eventRsvps.findMany({
       where: and(
@@ -181,10 +197,11 @@ export class EventsService {
     });
     const rsvpedEventIds = new Set(mine.map((r) => r.eventId));
 
-    return rows.map((row) => ({
+    const items = rows.map((row) => ({
       ...row,
       rsvpedByMe: rsvpedEventIds.has(row.id),
     }));
+    return { items, total, page, limit };
   }
 
   async findById(id: string): Promise<EventFull> {

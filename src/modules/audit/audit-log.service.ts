@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
+import {
+  Paginated,
+  PaginationQueryDto,
+} from '../../common/dto/pagination-query.dto';
 import { auditLogs } from '../../database/schema';
 import { TenantDbService } from '../../database/tenant-db.service';
 
@@ -42,12 +46,24 @@ export class AuditLogService {
     });
   }
 
-  listForOrg(organisationId: string): Promise<AuditLogRow[]> {
-    return this.tenantDb.db.query.auditLogs.findMany({
-      where: eq(auditLogs.organisationId, organisationId),
-      orderBy: desc(auditLogs.createdAt),
-      limit: 200,
-    });
+  async listForOrg(
+    organisationId: string,
+    { page, limit }: PaginationQueryDto,
+  ): Promise<Paginated<AuditLogRow>> {
+    const where = eq(auditLogs.organisationId, organisationId);
+    const [items, [{ count: total }]] = await Promise.all([
+      this.tenantDb.db.query.auditLogs.findMany({
+        where,
+        orderBy: desc(auditLogs.createdAt),
+        limit,
+        offset: (page - 1) * limit,
+      }),
+      this.tenantDb.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(auditLogs)
+        .where(where),
+    ]);
+    return { items, total, page, limit };
   }
 
   listPlatformWide(): Promise<AuditLogRow[]> {

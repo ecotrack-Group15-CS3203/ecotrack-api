@@ -4,7 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import {
+  Paginated,
+  PaginationQueryDto,
+} from '../../common/dto/pagination-query.dto';
 import { VerificationStatus } from '../../common/enums/incident.enum';
 import { NotificationType } from '../../common/enums/notification.enum';
 import {
@@ -300,18 +304,27 @@ export class TasksService {
 
   async listForOrg(
     organisationId: string,
+    { page, limit }: PaginationQueryDto,
     status?: TaskStatus,
-  ): Promise<TaskFull[]> {
-    const rows = await this.tenantDb.db.query.tasks.findMany({
-      where: status
-        ? and(
-            eq(tasks.organisationId, organisationId),
-            eq(tasks.status, status),
-          )
-        : eq(tasks.organisationId, organisationId),
-      orderBy: desc(tasks.createdAt),
-    });
-    return Promise.all(rows.map((t) => this.findById(t.id)));
+  ): Promise<Paginated<TaskFull>> {
+    const where = status
+      ? and(eq(tasks.organisationId, organisationId), eq(tasks.status, status))
+      : eq(tasks.organisationId, organisationId);
+
+    const [rows, [{ count: total }]] = await Promise.all([
+      this.tenantDb.db.query.tasks.findMany({
+        where,
+        orderBy: desc(tasks.createdAt),
+        limit,
+        offset: (page - 1) * limit,
+      }),
+      this.tenantDb.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(tasks)
+        .where(where),
+    ]);
+    const items = await Promise.all(rows.map((t) => this.findById(t.id)));
+    return { items, total, page, limit };
   }
 
   async listAssignedToVolunteer(
@@ -369,32 +382,28 @@ export class TasksService {
       filterFor(options.view),
     );
 
-    const matchingTaskIds = await this.tenantDb.db
-      .select({
-        id: tasks.id,
-        dueDate: tasks.dueDate,
-        createdAt: tasks.createdAt,
-      })
-      .from(taskAssignments)
-      .innerJoin(tasks, eq(taskAssignments.taskId, tasks.id))
-      .where(where);
+    // dueDate is required (SRS 3.1.6), so 'upcoming' needs no null-handling the way
+    // this did back when it was an optional scheduledAt.
+    const orderBy =
+      options.view === 'upcoming' ? asc(tasks.dueDate) : desc(tasks.createdAt);
 
-    const total = matchingTaskIds.length;
-    // dueDate is required (SRS 3.1.6), so 'upcoming' needs no null-handling branch
-    // the way this did back when it was an optional scheduledAt.
-    const sorted =
-      options.view === 'upcoming'
-        ? [...matchingTaskIds].sort(
-            (a, b) => a.dueDate.getTime() - b.dueDate.getTime(),
-          )
-        : [...matchingTaskIds].sort(
-            (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-          );
+    const [pageIds, [{ count: total }]] = await Promise.all([
+      this.tenantDb.db
+        .select({ id: tasks.id })
+        .from(taskAssignments)
+        .innerJoin(tasks, eq(taskAssignments.taskId, tasks.id))
+        .where(where)
+        .orderBy(orderBy)
+        .limit(limit)
+        .offset((page - 1) * limit),
+      this.tenantDb.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(taskAssignments)
+        .innerJoin(tasks, eq(taskAssignments.taskId, tasks.id))
+        .where(where),
+    ]);
 
-    const pageIds = sorted
-      .slice((page - 1) * limit, (page - 1) * limit + limit)
-      .map((t) => t.id);
-    const items = await Promise.all(pageIds.map((id) => this.findById(id)));
+    const items = await Promise.all(pageIds.map((t) => this.findById(t.id)));
     return { items, total, page, limit };
   }
 

@@ -14,6 +14,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
+import { ListJoinRequestsQuery } from './dto/list-join-requests.query';
 import { UpdateJoinRequestStatusDto } from './dto/update-join-request-status.dto';
 import { JoinRequestsService } from './join-requests.service';
 
@@ -30,9 +31,13 @@ export class JoinRequestsController {
   @Get()
   list(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
-    @Query('status') status?: 'pending' | 'approved' | 'rejected',
+    @Query() query: ListJoinRequestsQuery,
   ) {
-    return this.joinRequestsService.listForOrganisation(organisationId, status);
+    return this.joinRequestsService.listForOrganisation(
+      organisationId,
+      query,
+      query.status,
+    );
   }
 
   @HttpCode(HttpStatus.OK)

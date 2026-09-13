@@ -11,6 +11,7 @@ import type { DrizzleDb } from '../../database/drizzle.provider';
 import { organisations } from '../../database/schema';
 import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
+import { Paginated } from '../../common/dto/pagination-query.dto';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AuditLogService } from '../audit/audit-log.service';
 import { UsersService } from '../users/users.service';
@@ -82,9 +83,13 @@ export class OrganisationsService {
       lat?: number;
       lng?: number;
       radius?: number;
+      page?: number;
+      limit?: number;
     } = {},
-  ): Promise<PublicOrganisationRow[]> {
+  ): Promise<Paginated<PublicOrganisationRow>> {
     const { q, lat, lng, radius } = filters;
+    const page = Math.max(1, filters.page ?? 1);
+    const limit = Math.min(100, Math.max(1, filters.limit ?? 20));
 
     if ((lat === undefined) !== (lng === undefined)) {
       throw new BadRequestException(
@@ -125,17 +130,30 @@ export class OrganisationsService {
       );
     }
 
-    const result = await this.db.execute<PublicOrganisationRow>(sql`
-      SELECT
-        o.id, o.name, o.description, o.contact_email AS "contactEmail",
-        o.service_area_radius_km AS "serviceAreaRadiusKm",
-        ${distance} AS "distanceMeters",
-        ${eligible} AS "eligible"
-      FROM organisations o
-      WHERE ${sql.join(conditions, sql` AND `)}
-      ORDER BY ${point ? sql`"distanceMeters" ASC NULLS LAST,` : sql``} o.name ASC
-    `);
-    return result.rows;
+    const whereClause = sql.join(conditions, sql` AND `);
+
+    const [result, countResult] = await Promise.all([
+      this.db.execute<PublicOrganisationRow>(sql`
+        SELECT
+          o.id, o.name, o.description, o.contact_email AS "contactEmail",
+          o.service_area_radius_km AS "serviceAreaRadiusKm",
+          ${distance} AS "distanceMeters",
+          ${eligible} AS "eligible"
+        FROM organisations o
+        WHERE ${whereClause}
+        ORDER BY ${point ? sql`"distanceMeters" ASC NULLS LAST,` : sql``} o.name ASC
+        LIMIT ${limit} OFFSET ${(page - 1) * limit}
+      `),
+      this.db.execute<{ count: number }>(sql`
+        SELECT count(*)::int AS count FROM organisations o WHERE ${whereClause}
+      `),
+    ]);
+    return {
+      items: result.rows,
+      total: countResult.rows[0].count,
+      page,
+      limit,
+    };
   }
 
   async findById(id: string): Promise<OrganisationRow> {

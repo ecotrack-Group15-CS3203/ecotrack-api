@@ -15,11 +15,11 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
-import { TaskStatus } from '../../common/enums/task.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { AddTaskNoteDto } from './dto/add-task-note.dto';
 import { AddTaskPhotosDto } from './dto/add-task-photos.dto';
+import { ListOrgTasksQuery } from './dto/list-org-tasks.query';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { RespondAssignmentDto } from './dto/respond-assignment.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -45,9 +45,9 @@ export class TasksController {
   @Get()
   findAll(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
-    @Query('status') status?: TaskStatus,
+    @Query() query: ListOrgTasksQuery,
   ) {
-    return this.tasksService.listForOrg(organisationId, status);
+    return this.tasksService.listForOrg(organisationId, query, query.status);
   }
 
   @Roles(UserRole.VOLUNTEER)

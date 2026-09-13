@@ -22,6 +22,7 @@ import type { AuthenticatedUser } from '../../common/interfaces/authenticated-re
 import { AcceptInviteLinkDto } from './dto/accept-invite-link.dto';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { CreateOrganisationDto } from './dto/create-organisation.dto';
+import { ListMembersQuery } from './dto/list-members.query';
 import { SearchOrganisationsQuery } from './dto/search-organisations.query';
 import { SubmitJoinRequestDto } from './dto/submit-join-request.dto';
 import { UpdateOrganisationDto } from './dto/update-organisation.dto';
@@ -140,9 +141,13 @@ export class OrganisationsController {
   @Get(':organisationId/members')
   listMembers(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
-    @Query('role') role?: UserRole,
+    @Query() query: ListMembersQuery,
   ) {
-    return this.membersService.listMembers(organisationId, role);
+    return this.membersService.listMembersPaginated(
+      organisationId,
+      query,
+      query.role,
+    );
   }
 
   @Roles(UserRole.ORG_ADMIN)

@@ -18,9 +18,9 @@ import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { CreateEventDto } from './dto/create-event.dto';
+import { ListEventsQuery } from './dto/list-events.query';
 import { UpdateEventStatusDto } from './dto/update-event-status.dto';
 import { EventsService } from './events.service';
-import type { EventStatus } from './events.service';
 
 /** SRS 3.1.7/3.1.9. */
 @ApiTags('events')
@@ -44,12 +44,13 @@ export class EventsController {
   findAll(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @CurrentUser() user: AuthenticatedUser,
-    @Query('status') status?: EventStatus,
+    @Query() query: ListEventsQuery,
   ) {
     return this.eventsService.listForOrganisation(
       organisationId,
       user.id,
-      status,
+      query,
+      query.status,
     );
   }
 

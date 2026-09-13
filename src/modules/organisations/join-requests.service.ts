@@ -6,6 +6,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import {
+  Paginated,
+  PaginationQueryDto,
+} from '../../common/dto/pagination-query.dto';
 import { NotificationType } from '../../common/enums/notification.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { joinRequests, organisations, users } from '../../database/schema';
@@ -170,18 +174,29 @@ export class JoinRequestsService {
    */
   async listForOrganisation(
     organisationId: string,
+    { page, limit }: PaginationQueryDto,
     status?: 'pending' | 'approved' | 'rejected',
-  ): Promise<JoinRequestWithRequester[]> {
-    const rows = await this.tenantDb.db.query.joinRequests.findMany({
-      where: status
-        ? and(
-            eq(joinRequests.organisationId, organisationId),
-            eq(joinRequests.status, status),
-          )
-        : eq(joinRequests.organisationId, organisationId),
-      orderBy: desc(joinRequests.createdAt),
-    });
-    if (rows.length === 0) return [];
+  ): Promise<Paginated<JoinRequestWithRequester>> {
+    const where = status
+      ? and(
+          eq(joinRequests.organisationId, organisationId),
+          eq(joinRequests.status, status),
+        )
+      : eq(joinRequests.organisationId, organisationId);
+
+    const [rows, [{ count: total }]] = await Promise.all([
+      this.tenantDb.db.query.joinRequests.findMany({
+        where,
+        orderBy: desc(joinRequests.createdAt),
+        limit,
+        offset: (page - 1) * limit,
+      }),
+      this.tenantDb.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(joinRequests)
+        .where(where),
+    ]);
+    if (rows.length === 0) return { items: [], total, page, limit };
 
     const requesterIds = rows.map((r) => r.userId);
     const requesters = await this.tenantDb.db.query.users.findMany({
@@ -190,10 +205,11 @@ export class JoinRequestsService {
     });
     const requesterById = new Map(requesters.map((u) => [u.id, u]));
 
-    return rows.map((r) => ({
+    const items = rows.map((r) => ({
       ...r,
       requester: requesterById.get(r.userId) ?? null,
     }));
+    return { items, total, page, limit };
   }
 
   /**

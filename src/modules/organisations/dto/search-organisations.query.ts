@@ -9,13 +9,14 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 /**
  * SRS 3.1.14's public organisation directory: free-text search plus an optional
  * point. `lat`/`lng` are both-or-neither — the service rejects a half-supplied pair
  * rather than silently ignoring it.
  */
-export class SearchOrganisationsQuery {
+export class SearchOrganisationsQuery extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)

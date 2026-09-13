@@ -1,5 +1,6 @@
-import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -13,7 +14,10 @@ export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}
 
   @Get()
-  findForOrg(@Param('organisationId', ParseUUIDPipe) organisationId: string) {
-    return this.auditLogService.listForOrg(organisationId);
+  findForOrg(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.auditLogService.listForOrg(organisationId, query);
   }
 }

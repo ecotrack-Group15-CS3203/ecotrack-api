@@ -1,9 +1,22 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import {
+  Paginated,
+  PaginationQueryDto,
+} from '../../common/dto/pagination-query.dto';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { DRIZZLE_DB } from '../../database/drizzle.provider';
 import type { DrizzleDb } from '../../database/drizzle.provider';
 import { users } from '../../database/schema';
+
+export interface PublicMemberRow {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  isActive: boolean;
+  createdAt: Date;
+}
 
 /**
  * Kept as its own class/name (rather than folding into UsersService) to minimize
@@ -36,6 +49,12 @@ export class OrganisationMembersService {
     return member as { role: UserRole; isActive: boolean } | undefined;
   }
 
+  /**
+   * Unpaginated, deliberately: this is also how JoinRequestsService finds every
+   * admin to notify of a new request, and silently notifying only the first page
+   * of admins would be a real bug, not a performance optimisation. The HTTP list
+   * route uses listMembersPaginated below instead.
+   */
   listMembers(organisationId: string, role?: UserRole) {
     return this.db.query.users.findMany({
       where: role
@@ -50,6 +69,39 @@ export class OrganisationMembersService {
         createdAt: true,
       },
     });
+  }
+
+  async listMembersPaginated(
+    organisationId: string,
+    { page, limit }: PaginationQueryDto,
+    role?: UserRole,
+  ): Promise<Paginated<PublicMemberRow>> {
+    const where = role
+      ? and(eq(users.organisationId, organisationId), eq(users.role, role))
+      : eq(users.organisationId, organisationId);
+
+    const [items, [{ count: total }]] = await Promise.all([
+      this.db.query.users.findMany({
+        where,
+        orderBy: desc(users.createdAt),
+        limit,
+        offset: (page - 1) * limit,
+        columns: {
+          id: true,
+          email: true,
+          fullName: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+        },
+      }),
+      this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(users)
+        .where(where),
+    ]);
+    // Same string-literal-union-vs-enum reconciliation as findMembership above.
+    return { items: items as PublicMemberRow[], total, page, limit };
   }
 
   listAvailableVolunteers(organisationId: string) {
