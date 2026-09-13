@@ -9,6 +9,7 @@ import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   notifications,
 } from '../../database/schema';
+import type { DrizzleDb } from '../../database/drizzle.provider';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { UsersService } from '../users/users.service';
 import { PushNotificationsService } from './push-notifications.service';
@@ -41,16 +42,20 @@ export class NotificationsService {
    * the writer cannot see the row it just wrote. Asking for it back would fail the
    * whole request under RLS. Nothing consumes the row, so nothing asks.
    */
-  async create(data: {
-    userId: string;
-    organisationId?: string | null;
-    type: NotificationType;
-    title: string;
-    message: string;
-    relatedEntityType?: string;
-    relatedEntityId?: string;
-  }): Promise<void> {
-    await this.tenantDb.db.insert(notifications).values({
+  async create(
+    data: {
+      userId: string;
+      organisationId?: string | null;
+      type: NotificationType;
+      title: string;
+      message: string;
+      relatedEntityType?: string;
+      relatedEntityId?: string;
+    },
+    /** Pass SystemDbService's instance when called outside a request (the cron). */
+    db: DrizzleDb = this.tenantDb.db,
+  ): Promise<void> {
+    await db.insert(notifications).values({
       userId: data.userId,
       organisationId: data.organisationId ?? null,
       type: data.type,
