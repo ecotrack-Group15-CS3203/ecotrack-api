@@ -1,0 +1,14 @@
+-- SRS 3.1.20: audit log entries must be immutable once written. tenant_isolation's
+-- USING/WITH CHECK clauses (migration 0003) only decide which rows a query can see
+-- or insert — they say nothing about which statement types are allowed at all, and
+-- ecotrack_app was granted UPDATE/DELETE on every table in the schema, audit_logs
+-- included. An org_admin (or any bug in application code running as this role)
+-- could therefore alter or erase their own organisation's history despite the RLS
+-- policy technically "allowing" only their own tenant's rows.
+--
+-- Revoking the privilege at the role level is a stronger guarantee than any row
+-- policy: the statement fails before RLS is even consulted, for every row,
+-- unconditionally. INSERT and SELECT are untouched — writing new entries and
+-- reading existing ones (each still tenant-scoped by the unchanged policy) are the
+-- only two things this table needs to support.
+REVOKE UPDATE, DELETE ON "audit_logs" FROM "ecotrack_app";
