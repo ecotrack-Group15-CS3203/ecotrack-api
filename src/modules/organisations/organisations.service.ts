@@ -1,13 +1,15 @@
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../database/drizzle.provider';
 import type { DrizzleDb } from '../../database/drizzle.provider';
 import { organisations } from '../../database/schema';
+import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -21,6 +23,22 @@ export type OrganisationRow = typeof organisations.$inferSelect;
 interface ServiceAreaInput {
   center: { lat: number; lng: number };
   radiusKm: number;
+}
+
+/**
+ * A directory row. `distanceMeters`/`eligible` are null when the caller supplied no
+ * point — the difference between "we didn't check" and "checked and it's out of
+ * range", which the client needs in order to decide whether to show a Join button.
+ */
+export interface PublicOrganisationRow {
+  [key: string]: unknown;
+  id: string;
+  name: string;
+  description: string | null;
+  contactEmail: string;
+  serviceAreaRadiusKm: number | null;
+  distanceMeters: number | null;
+  eligible: boolean | null;
 }
 
 /**
@@ -46,13 +64,78 @@ export class OrganisationsService {
     });
   }
 
-  async listPublic(): Promise<{ id: string; name: string }[]> {
-    const rows = await this.db.query.organisations.findMany({
-      where: eq(organisations.isActive, true),
-      orderBy: asc(organisations.name),
-      columns: { id: true, name: true },
-    });
-    return rows;
+  /**
+   * SRS 3.1.14's public directory — how a citizen finds an organisation to join.
+   *
+   * The geo filter tests **coverage, not proximity**: which organisations' service
+   * areas reach the caller. That is deliberately the same predicate
+   * JoinRequestsService re-checks and 422s on, so the directory can mark a row
+   * ineligible up front rather than letting someone submit a request that is
+   * guaranteed to bounce.
+   *
+   * `organisations` is intentionally not RLS-protected (see migration 0003), so this
+   * runs on the pool-wide connection like every other method here.
+   */
+  async listPublic(
+    filters: {
+      q?: string;
+      lat?: number;
+      lng?: number;
+      radius?: number;
+    } = {},
+  ): Promise<PublicOrganisationRow[]> {
+    const { q, lat, lng, radius } = filters;
+
+    if ((lat === undefined) !== (lng === undefined)) {
+      throw new BadRequestException(
+        'Provide both lat and lng, or neither, when filtering by location',
+      );
+    }
+
+    const point =
+      lat !== undefined && lng !== undefined
+        ? toGeographyPoint(lat, lng)
+        : null;
+
+    // Interpolated as a whole SQL fragment rather than a bare parameter: with no
+    // point supplied there is nothing to measure from, and the geo columns come back
+    // null instead of the query failing.
+    const distance = point
+      ? sql`ST_Distance(o.service_area_center, ${point}::geography)`
+      : sql`NULL::double precision`;
+    const eligible = point
+      ? sql`(
+          o.service_area_center IS NOT NULL
+          AND o.service_area_radius_km IS NOT NULL
+          AND ST_DWithin(
+            o.service_area_center,
+            ${point}::geography,
+            o.service_area_radius_km * 1000
+          )
+        )`
+      : sql`NULL::boolean`;
+
+    const conditions = [sql`o.is_active`];
+    if (q?.trim()) {
+      conditions.push(sql`o.name ILIKE ${'%' + q.trim() + '%'}`);
+    }
+    if (point && radius !== undefined) {
+      conditions.push(
+        sql`ST_DWithin(o.service_area_center, ${point}::geography, ${radius})`,
+      );
+    }
+
+    const result = await this.db.execute<PublicOrganisationRow>(sql`
+      SELECT
+        o.id, o.name, o.description, o.contact_email AS "contactEmail",
+        o.service_area_radius_km AS "serviceAreaRadiusKm",
+        ${distance} AS "distanceMeters",
+        ${eligible} AS "eligible"
+      FROM organisations o
+      WHERE ${sql.join(conditions, sql` AND `)}
+      ORDER BY ${point ? sql`"distanceMeters" ASC NULLS LAST,` : sql``} o.name ASC
+    `);
+    return result.rows;
   }
 
   async findById(id: string): Promise<OrganisationRow> {

@@ -22,6 +22,7 @@ import type { AuthenticatedUser } from '../../common/interfaces/authenticated-re
 import { AcceptInviteLinkDto } from './dto/accept-invite-link.dto';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { CreateOrganisationDto } from './dto/create-organisation.dto';
+import { SearchOrganisationsQuery } from './dto/search-organisations.query';
 import { SubmitJoinRequestDto } from './dto/submit-join-request.dto';
 import { UpdateOrganisationDto } from './dto/update-organisation.dto';
 import { InviteLinksService } from './invite-links.service';
@@ -85,8 +86,8 @@ export class OrganisationsController {
   /** Unauthenticated org picker for mobile registration — name only, active orgs only. */
   @Public()
   @Get('public')
-  listPublic() {
-    return this.organisationsService.listPublic();
+  listPublic(@Query() query: SearchOrganisationsQuery) {
+    return this.organisationsService.listPublic(query);
   }
 
   @Roles(UserRole.ORG_ADMIN, PLATFORM_ADMIN)
