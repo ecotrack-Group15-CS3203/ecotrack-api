@@ -40,7 +40,7 @@ pnpm start:dev
 ```
 
 The API listens on `http://localhost:4000` and serves everything under the `/v1` prefix
-(`PORT` in `.env`). Interactive API docs (Swagger UI) are at `/api-docs`. Health check:
+(`PORT` in `.env`). Interactive API docs (Swagger UI) are at `/api/docs`. Health check:
 `GET /v1/health` — returns 503 rather than 200 when the database is unreachable, so it
 works as a deployment gate.
 
