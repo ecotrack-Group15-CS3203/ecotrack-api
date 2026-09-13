@@ -149,11 +149,17 @@ export class EventsService {
     return this.findById(saved.id);
   }
 
-  listForOrganisation(
+  /**
+   * `rsvpedByMe` is resolved here rather than left to the client: the list is the
+   * screen where a volunteer decides whether to RSVP, and without it the UI has no
+   * way to render an already-going state short of fetching every event's detail.
+   */
+  async listForOrganisation(
     organisationId: string,
+    userId: string,
     status?: EventStatus,
-  ): Promise<EventRow[]> {
-    return this.tenantDb.db.query.events.findMany({
+  ): Promise<(EventRow & { rsvpedByMe: boolean })[]> {
+    const rows = await this.tenantDb.db.query.events.findMany({
       where: status
         ? and(
             eq(events.organisationId, organisationId),
@@ -161,6 +167,24 @@ export class EventsService {
           )
         : eq(events.organisationId, organisationId),
     });
+    if (rows.length === 0) return [];
+
+    const mine = await this.tenantDb.db.query.eventRsvps.findMany({
+      where: and(
+        eq(eventRsvps.userId, userId),
+        inArray(
+          eventRsvps.eventId,
+          rows.map((r) => r.id),
+        ),
+      ),
+      columns: { eventId: true },
+    });
+    const rsvpedEventIds = new Set(mine.map((r) => r.eventId));
+
+    return rows.map((row) => ({
+      ...row,
+      rsvpedByMe: rsvpedEventIds.has(row.id),
+    }));
   }
 
   async findById(id: string): Promise<EventFull> {
@@ -361,6 +385,63 @@ export class EventsService {
       organisationId,
       actingUserId: userId,
       action: 'event.rsvp',
+      entityType: 'event',
+      entityId: eventId,
+    });
+
+    return this.findById(eventId);
+  }
+
+  /**
+   * Withdraws an RSVP. Takes the same `FOR UPDATE` row lock the RSVP path does, so a
+   * concurrent RSVP and cancellation can't interleave into a wrong `rsvpCount`.
+   * Idempotent: cancelling when not going is a no-op, not an error.
+   *
+   * Deliberately allowed on a cancelled or completed event — the row is being
+   * removed, not added, so none of the capacity or lifecycle reasons to refuse an
+   * RSVP apply to withdrawing one.
+   */
+  async cancelRsvp(
+    organisationId: string,
+    eventId: string,
+    userId: string,
+  ): Promise<EventFull> {
+    const [event] = await this.tenantDb.db
+      .select()
+      .from(events)
+      .where(
+        and(eq(events.id, eventId), eq(events.organisationId, organisationId)),
+      )
+      .for('update');
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    const deleted = await this.tenantDb.db
+      .delete(eventRsvps)
+      .where(
+        and(eq(eventRsvps.eventId, eventId), eq(eventRsvps.userId, userId)),
+      )
+      .returning({ eventId: eventRsvps.eventId });
+
+    if (deleted.length === 0) {
+      return this.findById(eventId);
+    }
+
+    // GREATEST guards the counter against ever going negative, however the row and
+    // the count might have drifted apart.
+    await this.tenantDb.db
+      .update(events)
+      .set({
+        rsvpCount: sql`GREATEST(${events.rsvpCount} - 1, 0)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(events.id, eventId));
+
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId: userId,
+      action: 'event.rsvp_cancelled',
       entityType: 'event',
       entityId: eventId,
     });

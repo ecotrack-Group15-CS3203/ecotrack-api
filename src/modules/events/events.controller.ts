@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -42,9 +43,14 @@ export class EventsController {
   @Get()
   findAll(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('status') status?: EventStatus,
   ) {
-    return this.eventsService.listForOrganisation(organisationId, status);
+    return this.eventsService.listForOrganisation(
+      organisationId,
+      user.id,
+      status,
+    );
   }
 
   @Roles(UserRole.ORG_ADMIN, UserRole.VOLUNTEER, PLATFORM_ADMIN)
@@ -82,5 +88,16 @@ export class EventsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.eventsService.rsvp(organisationId, eventId, user.id);
+  }
+
+  @Roles(UserRole.VOLUNTEER)
+  @HttpCode(HttpStatus.OK)
+  @Delete(':eventId/rsvp')
+  cancelRsvp(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('eventId', ParseUUIDPipe) eventId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.eventsService.cancelRsvp(organisationId, eventId, user.id);
   }
 }
