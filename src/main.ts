@@ -1,29 +1,16 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { mkdirSync } from 'fs';
 import { AppModule } from './app.module';
-import {
-  INCIDENT_IMAGES_DIR,
-  TASK_PHOTOS_DIR,
-  UPLOADS_ROOT,
-} from './common/config/upload.config';
 
 async function bootstrap() {
-  mkdirSync(INCIDENT_IMAGES_DIR, { recursive: true });
-  mkdirSync(TASK_PHOTOS_DIR, { recursive: true });
-
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableCors();
 
-  // Every route is served under /v1 (SRS Appendix B). The mobile client's
-  // EXPO_PUBLIC_API_BASE_URL defaults to http://<host>:4000/v1, so the prefix and the
-  // default port below are part of the client contract, not cosmetic.
+  // Every route is served under /v1 (SRS Appendix B). Both clients append /v1 to a
+  // configured host, so the prefix and the default port below are part of the
+  // client contract, not cosmetic.
   app.setGlobalPrefix('v1');
-
-  // Static /uploads/ is registered OUTSIDE the prefix and is a placeholder only —
-  // it disappears with MediaModule (S3 presigned URLs, SRS 3.1.15).
-  app.useStaticAssets(UPLOADS_ROOT, { prefix: '/uploads/' });
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('EcoTrack API')

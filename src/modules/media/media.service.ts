@@ -9,8 +9,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 
-/** SRS 3.1.15. Kept here rather than in upload.config.ts so the multer path can be
- *  deleted wholesale later without taking this with it. */
+/** SRS 3.1.15: the only image types accepted for any upload, incident or task. */
 export const ALLOWED_CONTENT_TYPES = new Set([
   'image/jpeg',
   'image/png',

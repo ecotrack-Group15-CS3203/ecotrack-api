@@ -10,12 +10,8 @@ import {
   Patch,
   Post,
   Query,
-  UploadedFiles,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
-import { taskPhotoUploadOptions } from '../../common/config/upload.config';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PLATFORM_ADMIN } from '../../common/enums/app-role.enum';
@@ -23,6 +19,7 @@ import { TaskStatus } from '../../common/enums/task.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-request.interface';
 import { AddTaskNoteDto } from './dto/add-task-note.dto';
+import { AddTaskPhotosDto } from './dto/add-task-photos.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { RespondAssignmentDto } from './dto/respond-assignment.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -140,24 +137,23 @@ export class TasksController {
     return this.tasksService.addNote(organisationId, taskId, user.id, dto.note);
   }
 
+  /**
+   * JSON, not multipart: photos go straight to S3 via POST /v1/media/upload-url and
+   * only their URLs arrive here, exactly like incident photos (SRS 3.1.15/3.1.16).
+   */
   @Roles(UserRole.VOLUNTEER)
-  @ApiConsumes('multipart/form-data')
   @Post(':taskId/progress/photos')
-  @UseInterceptors(FilesInterceptor('photos', 5, taskPhotoUploadOptions))
   addPhotos(
     @Param('organisationId', ParseUUIDPipe) organisationId: string,
     @Param('taskId', ParseUUIDPipe) taskId: string,
-    @UploadedFiles() photos: Express.Multer.File[],
+    @Body() dto: AddTaskPhotosDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    const photoUrls = (photos ?? []).map(
-      (file) => `/uploads/tasks/${file.filename}`,
-    );
     return this.tasksService.addPhotos(
       organisationId,
       taskId,
       user.id,
-      photoUrls,
+      dto.mediaUrls,
     );
   }
 
