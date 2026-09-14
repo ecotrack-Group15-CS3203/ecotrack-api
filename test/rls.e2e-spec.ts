@@ -116,9 +116,9 @@ beforeAll(async () => {
   const org = async (name: string) =>
     (
       await migrator.query<{ id: string }>(
-        `INSERT INTO organisations (name, contact_email, service_area_center, service_area_radius_km)
-         VALUES ($1, $2, $3, 25) RETURNING id`,
-        [name, `${name}@rls.test`, COLOMBO],
+        `INSERT INTO organisations (name, slug, contact_email, service_area_center, service_area_radius_km)
+         VALUES ($1, $2, $3, $4, 25) RETURNING id`,
+        [name, name, `${name}@rls.test`, COLOMBO],
       )
     ).rows[0].id;
 
