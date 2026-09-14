@@ -36,6 +36,11 @@ export class AuthService {
       role: user.role,
       isPlatformAdmin: user.isPlatformAdmin,
       notificationPreferences: user.notificationPreferences,
+      notificationRadiusMeters: user.notificationRadiusMeters,
+      notificationMinUrgency: user.notificationMinUrgency,
+      // Coordinates are never echoed back — nothing reads them, and the settings
+      // screen only needs to know whether an alert centre has been captured yet.
+      alertCenterSet: user.alertCenter !== null,
       organisation: organisation
         ? {
             id: organisation.id,

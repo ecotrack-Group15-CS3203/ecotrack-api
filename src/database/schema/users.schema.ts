@@ -1,6 +1,14 @@
-import { boolean, jsonb, pgTable, uuid, varchar } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  timestamp,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core';
 import { baseColumns, geographyPoint } from './columns.helpers';
-import { roleEnum } from './enums.schema';
+import { incidentSeverityEnum, roleEnum } from './enums.schema';
 import { organisations } from './organisations.schema';
 
 export interface NotificationPreferences {
@@ -43,4 +51,23 @@ export const users = pgTable('users', {
   notificationPreferences: jsonb('notification_preferences')
     .notNull()
     .default(DEFAULT_NOTIFICATION_PREFERENCES),
+  /**
+   * SRS 3.1.4's proximity alerts — deliberately a SEPARATE point from
+   * `homeLocation` above, not reused. `homeLocation`'s consent is scoped to
+   * service-area eligibility only; alertCenter has its own consent moment (set
+   * when the user first configures a notification radius on mobile) and is the
+   * only location ever matched against new incidents. Never populated at
+   * registration, and updated only on an explicit settings change — SRS 3.11.3
+   * forbids continuous background tracking.
+   */
+  notificationRadiusMeters: integer('notification_radius_meters')
+    .notNull()
+    .default(10_000),
+  notificationMinUrgency: incidentSeverityEnum('notification_min_urgency')
+    .notNull()
+    .default('high'),
+  alertCenter: geographyPoint('alert_center'),
+  alertCenterUpdatedAt: timestamp('alert_center_updated_at', {
+    withTimezone: true,
+  }),
 });

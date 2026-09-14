@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { DRIZZLE_DB } from '../../database/drizzle.provider';
 import type { DrizzleDb } from '../../database/drizzle.provider';
 import { DEFAULT_NOTIFICATION_PREFERENCES, users } from '../../database/schema';
+import { IncidentSeverity } from '../../common/enums/incident.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 
 export type UserRow = typeof users.$inferSelect;
@@ -95,6 +96,9 @@ export class UsersService {
       notificationPreferences?: Partial<
         typeof DEFAULT_NOTIFICATION_PREFERENCES
       >;
+      notificationRadiusMeters?: number;
+      notificationMinUrgency?: IncidentSeverity;
+      alertCenter?: { lat: number; lng: number };
     },
   ): Promise<UserRow> {
     const current = await this.findById(userId);
@@ -111,6 +115,16 @@ export class UsersService {
             ...(current.notificationPreferences as typeof DEFAULT_NOTIFICATION_PREFERENCES),
             ...data.notificationPreferences,
           },
+        }),
+        ...(data.notificationRadiusMeters !== undefined && {
+          notificationRadiusMeters: data.notificationRadiusMeters,
+        }),
+        ...(data.notificationMinUrgency !== undefined && {
+          notificationMinUrgency: data.notificationMinUrgency,
+        }),
+        ...(data.alertCenter !== undefined && {
+          alertCenter: data.alertCenter,
+          alertCenterUpdatedAt: new Date(),
         }),
         updatedAt: new Date(),
       })
