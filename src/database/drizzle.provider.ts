@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { Provider } from '@nestjs/common';
 import { drizzle, NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
+import { buildPgPoolConfig } from './pg-config';
 import * as schema from './schema';
 
 export const DRIZZLE_POOL = 'DRIZZLE_POOL';
@@ -20,13 +21,7 @@ export type DrizzleDb = NodePgDatabase<typeof schema>;
 export const drizzlePoolProvider: Provider = {
   provide: DRIZZLE_POOL,
   useFactory: (config: ConfigService) =>
-    new Pool({
-      host: config.get<string>('DB_HOST'),
-      port: config.get<number>('DB_PORT'),
-      user: config.get<string>('DB_USER'),
-      password: config.get<string>('DB_PASSWORD'),
-      database: config.get<string>('DB_NAME'),
-    }),
+    new Pool(buildPgPoolConfig((key) => config.get(key))),
   inject: [ConfigService],
 };
 
