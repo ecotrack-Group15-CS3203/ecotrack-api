@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancels a superseded run on the same branch/PR instead of letting an old
+# push's CI keep burning minutes after a newer push already replaced it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Matches migration 0003_app_role_and_rls.sql, which self-provisions this
+  # role/password on first migration run — nothing outside the migrations
+  # needs to create it.
+  DB_HOST: localhost
+  DB_PORT: 5432
+  DB_NAME: ecotrack
+  DB_USER: ecotrack_app
+  DB_PASSWORD: ecotrack_app
+  DB_MIGRATOR_USER: ecotrack
+  DB_MIGRATOR_PASSWORD: ecotrack
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Blocking gates per SRS §3.5.3 — both must exit 0, not just report.
+      - name: ESLint
+        run: pnpm exec eslint "{src,test}/**/*.ts"
+      - name: TypeScript
+        run: pnpm exec tsc --noEmit -p tsconfig.json
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Same image docker-compose.yml uses for local dev — RLS/spatial
+        # behavior must be tested against the real engine, not a substitute.
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: ecotrack
+          POSTGRES_PASSWORD: ecotrack
+          POSTGRES_DB: ecotrack
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ecotrack"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run migrations
+        run: pnpm db:migrate
+      - name: Integration tests
+        run: pnpm test:integration
