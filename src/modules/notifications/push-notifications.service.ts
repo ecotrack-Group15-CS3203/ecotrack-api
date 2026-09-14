@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Expo as ExpoInstance, ExpoPushMessage } from 'expo-server-sdk';
 
 type ExpoModule = typeof import('expo-server-sdk');
@@ -22,10 +23,16 @@ export class PushNotificationsService {
   private client: { Expo: ExpoModule['Expo']; instance: ExpoInstance } | null =
     null;
 
+  constructor(private readonly config: ConfigService) {}
+
   private async getClient() {
     if (!this.client) {
       const { Expo } = await import('expo-server-sdk');
-      this.client = { Expo, instance: new Expo() };
+      // Only required once "Enhanced push security" is enabled on the Expo
+      // project; until then Expo accepts unauthenticated sends.
+      const accessToken =
+        this.config.get<string>('EXPO_ACCESS_TOKEN') || undefined;
+      this.client = { Expo, instance: new Expo({ accessToken }) };
     }
     return this.client;
   }

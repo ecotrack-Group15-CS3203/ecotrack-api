@@ -8,6 +8,15 @@ import { AuthenticatedUser } from '../../../common/interfaces/authenticated-requ
 import { UsersService } from '../../users/users.service';
 import { AsgardeoJwtPayload } from '../interfaces/jwt-payload.interface';
 
+/** OIDC_AUDIENCE is a comma-separated list; empty means "don't check". */
+function parseAudience(raw: string | undefined): string[] | undefined {
+  const audience = (raw ?? '')
+    .split(',')
+    .map((clientId) => clientId.trim())
+    .filter(Boolean);
+  return audience.length ? audience : undefined;
+}
+
 /**
  * Validates every protected request's access token against Asgardeo's live JWKS
  * endpoint (RS256) instead of a locally-held HS256 secret — EcoTrack no longer issues
@@ -31,6 +40,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ignoreExpiration: false,
       algorithms: ['RS256'],
       issuer: config.get<string>('OIDC_ISSUER') || undefined,
+      // Asgardeo sets `aud` to the client ID the token was issued to. Checked only
+      // when configured, so a deployment that hasn't set it can't lock itself out.
+      audience: parseAudience(config.get<string>('OIDC_AUDIENCE')),
       secretOrKeyProvider: jwksRsa.passportJwtSecret({
         cache: true,
         rateLimit: true,
@@ -42,8 +54,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: AsgardeoJwtPayload): Promise<AuthenticatedUser> {
     // Asgardeo does not put `email` in an access token unless it is added to the
-    // application's Access Token Attributes (the same field `role`/`organizationId`
-    // need — not the User Attributes tab). Without it, provisioning cannot satisfy
+    // application's Access Token Attributes (not the User Attributes tab). Without
+    // it, provisioning cannot satisfy
     // `users.email` NOT NULL, so fail with something that names the fix rather than
     // throwing a TypeError deeper in.
     if (!payload.email) {

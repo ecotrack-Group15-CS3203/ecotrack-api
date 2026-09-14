@@ -46,22 +46,23 @@ works as a deployment gate.
 
 ## Asgardeo configuration
 
-Three settings cause almost all integration failures here, and two of them are silent:
+Two settings cause almost all integration failures here, and both are silent until the
+first API call. Apply them to **both** the web and the mobile application:
 
 1. **Access tokens default to _opaque_.** Switch the application to issue **JWT** access
    tokens, or JWKS validation has nothing to validate.
-2. **Custom claims go under _Access Token Attributes_.** `role` and `organizationId` must
-   be added there specifically — the User Attributes tab is a different field, and setting
-   it alone leaves the claims missing from the decoded token.
-3. **Roles need _Organization_ audience**, not Application, if they're shared between the
-   mobile and web clients. This cannot be changed after a role is created.
+2. **`email` goes under _Access Token Attributes_.** The User Attributes tab is a
+   different field; setting it alone leaves `email` out of the access token, and the API
+   rejects the token with a 401 that names this fix.
 
-Point the API at the tenant with `OIDC_JWKS_URI` and `OIDC_ISSUER` (see `.env.example`).
+No roles, groups or custom claims need configuring. The API reads role and organisation
+from the `users` table on every request (`JwtStrategy.validate`), so a revoked membership
+takes effect immediately instead of lingering until the token expires. Backend-side, only
+`sub` and `email` need to be correct.
 
-> Note: the API does **not** trust the token's `role`/`organizationId` claims — it
-> re-reads them from the `users` table on every request (`JwtStrategy.validate`), so a
-> revoked membership takes effect immediately instead of lingering until the token
-> expires. Backend-side, only `sub` and `email` need to be correct.
+Point the API at the tenant with `OIDC_JWKS_URI`, `OIDC_ISSUER` (required when
+`NODE_ENV=production`) and `OIDC_AUDIENCE` (the two client IDs). See `.env.example`, and
+the External Services runbook in `echotrack-docs` for the full console walkthrough.
 
 ## Architecture
 
