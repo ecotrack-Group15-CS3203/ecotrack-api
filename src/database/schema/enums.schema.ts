@@ -64,6 +64,7 @@ export const notificationTypeEnum = pgEnum('notification_type', [
   'incident_proximity',
   'task_due_reminder',
   'event_reminder',
+  'volunteer_removed',
 ]);
 
 export const joinRequestStatusEnum = pgEnum('join_request_status', [

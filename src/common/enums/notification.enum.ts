@@ -17,4 +17,6 @@ export enum NotificationType {
   TASK_DUE_REMINDER = 'task_due_reminder',
   /** SRS 3.1.9 — sent 24h before an event's scheduledAt, to everyone RSVPed. */
   EVENT_REMINDER = 'event_reminder',
+  /** SRS 3.1.10 — an org_admin removed this user's volunteer membership. */
+  VOLUNTEER_REMOVED = 'volunteer_removed',
 }

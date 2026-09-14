@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -148,6 +149,17 @@ export class OrganisationsController {
       query,
       query.role,
     );
+  }
+
+  @Roles(UserRole.ORG_ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Delete(':organisationId/volunteers/:userId')
+  removeVolunteer(
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.membersService.removeVolunteer(organisationId, userId, user.id);
   }
 
   @Roles(UserRole.ORG_ADMIN)
