@@ -137,6 +137,7 @@ async function run() {
     .insert(schema.organisations)
     .values({
       name: SEED_ORG_NAME,
+      slug: 'kelani-river-conservation-society',
       description: 'Dev seed organisation',
       contactEmail: 'admin@example.com',
       serviceAreaCenter: CENTER,

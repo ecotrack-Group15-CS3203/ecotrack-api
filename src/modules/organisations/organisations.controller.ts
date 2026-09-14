@@ -92,6 +92,14 @@ export class OrganisationsController {
     return this.organisationsService.listPublic(query);
   }
 
+  /** Backs the public /orgs/[slug] web page (SRS 3.1.14) — declared before the
+   * :organisationId route below so "by-slug" is never captured as a UUID param. */
+  @Public()
+  @Get('by-slug/:slug')
+  findBySlug(@Param('slug') slug: string) {
+    return this.organisationsService.findBySlug(slug);
+  }
+
   @Roles(UserRole.ORG_ADMIN, PLATFORM_ADMIN)
   @Get(':organisationId')
   findOne(@Param('organisationId', ParseUUIDPipe) organisationId: string) {

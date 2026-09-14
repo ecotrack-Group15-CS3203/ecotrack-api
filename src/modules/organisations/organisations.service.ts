@@ -21,6 +21,14 @@ import { InvitationRow, InvitationsService } from './invitations.service';
 
 export type OrganisationRow = typeof organisations.$inferSelect;
 
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 128);
+}
+
 interface ServiceAreaInput {
   center: { lat: number; lng: number };
   radiusKm: number;
@@ -35,6 +43,7 @@ export interface PublicOrganisationRow {
   [key: string]: unknown;
   id: string;
   name: string;
+  slug: string;
   description: string | null;
   contactEmail: string;
   serviceAreaRadiusKm: number | null;
@@ -135,7 +144,7 @@ export class OrganisationsService {
     const [result, countResult] = await Promise.all([
       this.db.execute<PublicOrganisationRow>(sql`
         SELECT
-          o.id, o.name, o.description, o.contact_email AS "contactEmail",
+          o.id, o.name, o.slug, o.description, o.contact_email AS "contactEmail",
           o.service_area_radius_km AS "serviceAreaRadiusKm",
           ${distance} AS "distanceMeters",
           ${eligible} AS "eligible"
@@ -164,6 +173,55 @@ export class OrganisationsService {
       throw new NotFoundException('Organisation not found');
     }
     return organisation;
+  }
+
+  /**
+   * Backs the public `/orgs/[slug]` page (SRS 3.1.14) — same reduced,
+   * public-safe projection listPublic() returns, minus distanceMeters/
+   * eligible, which need a caller point this route has no reason to ask an
+   * anonymous visitor for.
+   */
+  async findBySlug(
+    slug: string,
+  ): Promise<Omit<PublicOrganisationRow, 'distanceMeters' | 'eligible'>> {
+    const organisation = await this.db.query.organisations.findFirst({
+      where: eq(organisations.slug, slug),
+      columns: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        contactEmail: true,
+        serviceAreaRadiusKm: true,
+      },
+    });
+    if (!organisation) {
+      throw new NotFoundException('Organisation not found');
+    }
+    return organisation;
+  }
+
+  /**
+   * Bare slugified name if free, else name-2/name-3/...— checked in a loop
+   * rather than relying on the DB unique constraint to reject a collision,
+   * since org registration (organisations.controller.ts) has no retry path
+   * and a rejected insert there would surface as a confusing 500 instead of
+   * this just picking the next available slug.
+   */
+  private async generateUniqueSlug(name: string): Promise<string> {
+    const base = slugify(name) || 'organisation';
+    let candidate = base;
+    let suffix = 2;
+    while (
+      await this.db.query.organisations.findFirst({
+        where: eq(organisations.slug, candidate),
+        columns: { id: true },
+      })
+    ) {
+      candidate = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    return candidate;
   }
 
   /**
@@ -201,6 +259,7 @@ export class OrganisationsService {
       .insert(organisations)
       .values({
         name: data.name,
+        slug: await this.generateUniqueSlug(data.name),
         description: data.description ?? null,
         contactEmail: data.contactEmail,
         serviceAreaCenter: data.serviceArea.center,

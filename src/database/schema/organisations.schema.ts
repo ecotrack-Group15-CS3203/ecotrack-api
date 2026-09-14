@@ -10,6 +10,10 @@ import { baseColumns, geographyPoint } from './columns.helpers';
 export const organisations = pgTable('organisations', {
   ...baseColumns,
   name: varchar('name', { length: 100 }).notNull(),
+  /** URL-safe identifier for public org pages (SRS 3.1.14) — unique constraint
+   * added by hand in migration 0030 (drizzle-kit's schema DSL doesn't emit
+   * UNIQUE from a bare column definition the way it does for a real index). */
+  slug: varchar('slug', { length: 140 }).notNull(),
   description: text('description'),
   contactEmail: varchar('contact_email').notNull(),
   isActive: boolean('is_active').notNull().default(true),
