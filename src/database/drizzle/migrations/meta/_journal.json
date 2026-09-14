@@ -204,6 +204,13 @@
       "when": 1789240500000,
       "tag": "0028_volunteer_removed_notification_type",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789240600000,
+      "tag": "0029_deleted_user_sentinel",
+      "breakpoints": true
     }
   ]
 }

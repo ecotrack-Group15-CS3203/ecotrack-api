@@ -60,4 +60,8 @@ export class AuthService {
     await this.usersService.updateProfile(userId, { pushToken });
     return { success: true };
   }
+
+  deleteAccount(userId: string): Promise<void> {
+    return this.usersService.deleteAccount(userId);
+  }
 }

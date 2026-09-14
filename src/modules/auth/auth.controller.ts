@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -56,6 +57,18 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.authService.registerPushToken(user.id, dto.pushToken);
+  }
+
+  /**
+   * SRS 3.11.1's right to erasure, Appendix B's `DELETE /users/me` under this
+   * codebase's actual `/auth/me` naming (same GET/PATCH route already lives here).
+   * Database-local — see UsersService.deleteAccount()'s doc comment for the
+   * Asgardeo-identity limitation this doesn't address.
+   */
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Delete('me')
+  deleteAccount(@CurrentUser() user: AuthenticatedUser) {
+    return this.authService.deleteAccount(user.id);
   }
 
   // Rate-limited per SRS 3.4.11 — a public, token-guessable lookup is exactly the
