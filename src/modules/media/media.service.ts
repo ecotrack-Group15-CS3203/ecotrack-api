@@ -42,13 +42,17 @@ export class MediaService {
   constructor(private readonly config: ConfigService) {
     const endpoint = this.config.get<string>('S3_ENDPOINT');
     this.bucket = this.config.get<string>('S3_BUCKET')!;
+    const accessKeyId = this.config.get<string>('S3_ACCESS_KEY_ID');
+    const secretAccessKey = this.config.get<string>('S3_SECRET_ACCESS_KEY');
 
     this.client = new S3Client({
       region: this.config.get<string>('S3_REGION'),
-      credentials: {
-        accessKeyId: this.config.get<string>('S3_ACCESS_KEY_ID')!,
-        secretAccessKey: this.config.get<string>('S3_SECRET_ACCESS_KEY')!,
-      },
+      // Without static keys the SDK uses its default credential chain, which on EC2
+      // is the instance profile role — the intended production setup, with no
+      // long-lived keys on disk. MinIO has no such chain, so local dev sets both.
+      ...(accessKeyId && secretAccessKey
+        ? { credentials: { accessKeyId, secretAccessKey } }
+        : {}),
       // Both only apply to MinIO / other S3-compatible backends. Left undefined for
       // real AWS, where the SDK's own defaults are correct.
       ...(endpoint ? { endpoint } : {}),
@@ -129,4 +133,38 @@ export class MediaService {
       { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
     );
   }
+
+  /**
+   * Turns a stored photo URL into one a client can load. Rows keep the permanent
+   * object URL createUploadTarget handed out, but the bucket is private, so that URL
+   * answers 403 to everyone; read endpoints return a presigned GET in its place.
+   *
+   * The key is taken from the URL's last path segment rather than by stripping
+   * publicBaseUrl, so rows written under a different S3_PUBLIC_URL (MinIO in dev,
+   * path-style vs virtual-host style) still resolve. Anything that isn't one of our
+   * keys, such as the seed script's placeholder, is returned untouched.
+   */
+  signStoredUrl(storedUrl: string): Promise<string>;
+  signStoredUrl(storedUrl: string | null): Promise<string | null>;
+  signStoredUrl(storedUrl: string | null): Promise<string | null> {
+    const objectKey = storedUrl ? objectKeyFromUrl(storedUrl) : null;
+    return objectKey
+      ? this.createDownloadUrl(objectKey)
+      : Promise.resolve(storedUrl);
+  }
+}
+
+/** Keys minted by createUploadTarget: a UUID plus the extension for its type. */
+const OBJECT_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[a-z0-9]+)?$/i;
+
+function objectKeyFromUrl(url: string): string | null {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return null;
+  }
+  const lastSegment = pathname.split('/').pop() ?? '';
+  return OBJECT_KEY_PATTERN.test(lastSegment) ? lastSegment : null;
 }

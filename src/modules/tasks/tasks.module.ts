@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { IncidentsModule } from '../incidents/incidents.module';
+import { MediaModule } from '../media/media.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganisationsModule } from '../organisations/organisations.module';
 import { WorkflowModule } from '../workflow/workflow.module';
@@ -14,6 +15,7 @@ import { TasksService } from './tasks.service';
     NotificationsModule,
     AuditModule,
     WorkflowModule,
+    MediaModule,
   ],
   controllers: [TasksController],
   providers: [TasksService],

@@ -24,6 +24,7 @@ import {
 import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
+import { MediaService } from '../media/media.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WorkflowStagesService } from '../workflow/workflow-stages.service';
 import { CreateIncidentDto } from './dto/create-incident.dto';
@@ -73,7 +74,23 @@ export class IncidentsService {
     private readonly notificationsService: NotificationsService,
     private readonly auditLogService: AuditLogService,
     private readonly workflowStagesService: WorkflowStagesService,
+    private readonly mediaService: MediaService,
   ) {}
+
+  /**
+   * Stored photo URLs point into a private bucket, so every read path returns
+   * presigned URLs instead — see MediaService.signStoredUrl.
+   */
+  private signImages(
+    images: { id: string; url: string }[],
+  ): Promise<{ id: string; url: string }[]> {
+    return Promise.all(
+      images.map(async (img) => ({
+        id: img.id,
+        url: await this.mediaService.signStoredUrl(img.url),
+      })),
+    );
+  }
 
   /**
    * Creates an unclaimed (pooled) incident — no organisationId, no verificationStatus,
@@ -160,12 +177,14 @@ export class IncidentsService {
         reports.map((r) => r.id),
       ),
     });
-    const items = reports.map((report) => ({
-      ...report,
-      images: images
-        .filter((img) => img.incidentId === report.id)
-        .map((img) => ({ id: img.id, url: img.url })),
-    }));
+    const items = await Promise.all(
+      reports.map(async (report) => ({
+        ...report,
+        images: await this.signImages(
+          images.filter((img) => img.incidentId === report.id),
+        ),
+      })),
+    );
     return { items, total, page, limit };
   }
 
@@ -215,7 +234,13 @@ export class IncidentsService {
       ORDER BY "distanceMeters" ASC
       LIMIT ${limit}
     `);
-    return result.rows;
+    // Signing is local HMAC work, not a round trip to S3, so doing it per row is cheap.
+    return Promise.all(
+      result.rows.map(async (row) => ({
+        ...row,
+        thumbnailUrl: await this.mediaService.signStoredUrl(row.thumbnailUrl),
+      })),
+    );
   }
 
   /**
@@ -229,10 +254,9 @@ export class IncidentsService {
    * every field the org/reporter view already returned before this method changed;
    * 'public' deliberately omits reportedByUserId, organisationId, claimedByUserId,
    * verificationStatus, rejectionReason, duplicateOfId and version — every field
-   * that names or implicates a specific person or tenant. Photos ARE included: each
-   * one is independently re-authorized by MediaController's own public_map_read
-   * fallback, so withholding the list here would just make the working ones
-   * undiscoverable rather than actually protecting anything.
+   * that names or implicates a specific person or tenant. Photos ARE included, already
+   * presigned: MediaController's public_map_read fallback would authorize the same
+   * objects anyway, so withholding them here would protect nothing.
    */
   async findByIdWithImages(id: string): Promise<
     | (IncidentRow & {
@@ -248,7 +272,7 @@ export class IncidentsService {
       });
       return {
         ...incident,
-        images: images.map((img) => ({ id: img.id, url: img.url })),
+        images: await this.signImages(images),
         visibility: 'full',
       };
     } catch (err) {
@@ -277,7 +301,7 @@ export class IncidentsService {
       });
       return {
         ...publicIncident,
-        images: images.map((img) => ({ id: img.id, url: img.url })),
+        images: await this.signImages(images),
         visibility: 'public',
       };
     }

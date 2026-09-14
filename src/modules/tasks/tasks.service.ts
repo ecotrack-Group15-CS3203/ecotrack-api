@@ -27,6 +27,7 @@ import {
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { IncidentsService } from '../incidents/incidents.service';
+import { MediaService } from '../media/media.service';
 import { NotificationDispatchRepository } from '../notifications/dispatch/notification-dispatch.repository';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OrganisationMembersService } from '../organisations/organisation-members.service';
@@ -72,6 +73,7 @@ export class TasksService {
     private readonly auditLogService: AuditLogService,
     private readonly workflowStagesService: WorkflowStagesService,
     private readonly workflowStageRulesService: WorkflowStageRulesService,
+    private readonly mediaService: MediaService,
   ) {}
 
   /**
@@ -305,9 +307,16 @@ export class TasksService {
       where: eq(taskNotes.taskId, id),
       orderBy: asc(taskNotes.createdAt),
     });
-    const photos = await this.tenantDb.db.query.taskPhotos.findMany({
+    const photoRows = await this.tenantDb.db.query.taskPhotos.findMany({
       where: eq(taskPhotos.taskId, id),
     });
+    // Private bucket: hand out presigned URLs, not the stored object URLs.
+    const photos = await Promise.all(
+      photoRows.map(async (photo) => ({
+        ...photo,
+        url: await this.mediaService.signStoredUrl(photo.url),
+      })),
+    );
     const volunteerIds = assignmentRows.map((a) => a.volunteerUserId);
     const volunteers = volunteerIds.length
       ? await this.tenantDb.db.query.users.findMany({
