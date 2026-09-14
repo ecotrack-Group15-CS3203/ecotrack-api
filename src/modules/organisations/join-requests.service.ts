@@ -184,18 +184,19 @@ export class JoinRequestsService {
         )
       : eq(joinRequests.organisationId, organisationId);
 
-    const [rows, [{ count: total }]] = await Promise.all([
-      this.tenantDb.db.query.joinRequests.findMany({
-        where,
-        orderBy: desc(joinRequests.createdAt),
-        limit,
-        offset: (page - 1) * limit,
-      }),
-      this.tenantDb.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(joinRequests)
-        .where(where),
-    ]);
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const rows = await this.tenantDb.db.query.joinRequests.findMany({
+      where,
+      orderBy: desc(joinRequests.createdAt),
+      limit,
+      offset: (page - 1) * limit,
+    });
+    const [{ count: total }] = await this.tenantDb.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(joinRequests)
+      .where(where);
     if (rows.length === 0) return { items: [], total, page, limit };
 
     const requesterIds = rows.map((r) => r.userId);

@@ -157,25 +157,27 @@ export class TasksService {
 
     await this.scheduleDueReminder(saved.id, saved.dueDate);
 
-    await Promise.all([
-      this.auditLogService.record({
-        organisationId,
-        actingUserId: createdByUserId,
-        action: 'task.created',
-        entityType: 'task',
-        entityId: saved.id,
-        metadata: { assignedTo: dto.assignedTo },
-      }),
-      this.notificationsService.create({
-        userId: dto.assignedTo,
-        organisationId,
-        type: NotificationType.TASK_ASSIGNED,
-        title: 'New cleanup task assigned',
-        message: `You have been assigned to: ${dto.title}`,
-        relatedEntityType: 'task',
-        relatedEntityId: saved.id,
-      }),
-    ]);
+    // Sequential, not Promise.all: both calls ultimately query tenantDb.db, one
+    // dedicated pg Client per request (TenantInterceptor), not a Pool —
+    // concurrent queries on it hit node-postgres's deprecated-and-scheduled-for-
+    // removal concurrent-query path.
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId: createdByUserId,
+      action: 'task.created',
+      entityType: 'task',
+      entityId: saved.id,
+      metadata: { assignedTo: dto.assignedTo },
+    });
+    await this.notificationsService.create({
+      userId: dto.assignedTo,
+      organisationId,
+      type: NotificationType.TASK_ASSIGNED,
+      title: 'New cleanup task assigned',
+      message: `You have been assigned to: ${dto.title}`,
+      relatedEntityType: 'task',
+      relatedEntityId: saved.id,
+    });
 
     const targetStage = await this.workflowStageRulesService.resolveTarget(
       organisationId,
@@ -292,18 +294,20 @@ export class TasksService {
     if (!task) {
       throw new NotFoundException('Task not found');
     }
-    const [assignmentRows, notes, photos] = await Promise.all([
-      this.tenantDb.db.query.taskAssignments.findMany({
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const assignmentRows =
+      await this.tenantDb.db.query.taskAssignments.findMany({
         where: eq(taskAssignments.taskId, id),
-      }),
-      this.tenantDb.db.query.taskNotes.findMany({
-        where: eq(taskNotes.taskId, id),
-        orderBy: asc(taskNotes.createdAt),
-      }),
-      this.tenantDb.db.query.taskPhotos.findMany({
-        where: eq(taskPhotos.taskId, id),
-      }),
-    ]);
+      });
+    const notes = await this.tenantDb.db.query.taskNotes.findMany({
+      where: eq(taskNotes.taskId, id),
+      orderBy: asc(taskNotes.createdAt),
+    });
+    const photos = await this.tenantDb.db.query.taskPhotos.findMany({
+      where: eq(taskPhotos.taskId, id),
+    });
     const volunteerIds = assignmentRows.map((a) => a.volunteerUserId);
     const volunteers = volunteerIds.length
       ? await this.tenantDb.db.query.users.findMany({
@@ -345,19 +349,23 @@ export class TasksService {
       ? and(eq(tasks.organisationId, organisationId), eq(tasks.status, status))
       : eq(tasks.organisationId, organisationId);
 
-    const [rows, [{ count: total }]] = await Promise.all([
-      this.tenantDb.db.query.tasks.findMany({
-        where,
-        orderBy: desc(tasks.createdAt),
-        limit,
-        offset: (page - 1) * limit,
-      }),
-      this.tenantDb.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(tasks)
-        .where(where),
-    ]);
-    const items = await Promise.all(rows.map((t) => this.findById(t.id)));
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const rows = await this.tenantDb.db.query.tasks.findMany({
+      where,
+      orderBy: desc(tasks.createdAt),
+      limit,
+      offset: (page - 1) * limit,
+    });
+    const [{ count: total }] = await this.tenantDb.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tasks)
+      .where(where);
+    const items: TaskFull[] = [];
+    for (const row of rows) {
+      items.push(await this.findById(row.id));
+    }
     return { items, total, page, limit };
   }
 
@@ -421,23 +429,27 @@ export class TasksService {
     const orderBy =
       options.view === 'upcoming' ? asc(tasks.dueDate) : desc(tasks.createdAt);
 
-    const [pageIds, [{ count: total }]] = await Promise.all([
-      this.tenantDb.db
-        .select({ id: tasks.id })
-        .from(taskAssignments)
-        .innerJoin(tasks, eq(taskAssignments.taskId, tasks.id))
-        .where(where)
-        .orderBy(orderBy)
-        .limit(limit)
-        .offset((page - 1) * limit),
-      this.tenantDb.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(taskAssignments)
-        .innerJoin(tasks, eq(taskAssignments.taskId, tasks.id))
-        .where(where),
-    ]);
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const pageIds = await this.tenantDb.db
+      .select({ id: tasks.id })
+      .from(taskAssignments)
+      .innerJoin(tasks, eq(taskAssignments.taskId, tasks.id))
+      .where(where)
+      .orderBy(orderBy)
+      .limit(limit)
+      .offset((page - 1) * limit);
+    const [{ count: total }] = await this.tenantDb.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(taskAssignments)
+      .innerJoin(tasks, eq(taskAssignments.taskId, tasks.id))
+      .where(where);
 
-    const items = await Promise.all(pageIds.map((t) => this.findById(t.id)));
+    const items: TaskFull[] = [];
+    for (const pageId of pageIds) {
+      items.push(await this.findById(pageId.id));
+    }
     return { items, total, page, limit };
   }
 
@@ -526,28 +538,30 @@ export class TasksService {
       });
     }
 
-    await Promise.all([
-      this.auditLogService.record({
-        organisationId,
-        actingUserId,
-        action: 'task.reassigned',
-        entityType: 'task',
-        entityId: task.id,
-        metadata: {
-          from: current?.volunteerUserId ?? null,
-          to: newVolunteerUserId,
-        },
-      }),
-      this.notificationsService.create({
-        userId: newVolunteerUserId,
-        organisationId,
-        type: NotificationType.TASK_ASSIGNED,
-        title: 'New cleanup task assigned',
-        message: `You have been assigned to: ${task.title}`,
-        relatedEntityType: 'task',
-        relatedEntityId: task.id,
-      }),
-    ]);
+    // Sequential, not Promise.all: both calls ultimately query tenantDb.db, one
+    // dedicated pg Client per request (TenantInterceptor), not a Pool —
+    // concurrent queries on it hit node-postgres's deprecated-and-scheduled-for-
+    // removal concurrent-query path.
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId,
+      action: 'task.reassigned',
+      entityType: 'task',
+      entityId: task.id,
+      metadata: {
+        from: current?.volunteerUserId ?? null,
+        to: newVolunteerUserId,
+      },
+    });
+    await this.notificationsService.create({
+      userId: newVolunteerUserId,
+      organisationId,
+      type: NotificationType.TASK_ASSIGNED,
+      title: 'New cleanup task assigned',
+      message: `You have been assigned to: ${task.title}`,
+      relatedEntityType: 'task',
+      relatedEntityId: task.id,
+    });
   }
 
   /**
@@ -746,26 +760,28 @@ export class TasksService {
 
     await this.cancelDueReminder(taskId);
 
-    await Promise.all([
-      this.auditLogService.record({
+    // Sequential, not Promise.all: both calls ultimately query tenantDb.db, one
+    // dedicated pg Client per request (TenantInterceptor), not a Pool —
+    // concurrent queries on it hit node-postgres's deprecated-and-scheduled-for-
+    // removal concurrent-query path.
+    await this.auditLogService.record({
+      organisationId: task.organisationId,
+      actingUserId: volunteerUserId,
+      action: 'task.completed',
+      entityType: 'task',
+      entityId: task.id,
+    });
+    if (task.createdByUserId) {
+      await this.notificationsService.create({
+        userId: task.createdByUserId,
         organisationId: task.organisationId,
-        actingUserId: volunteerUserId,
-        action: 'task.completed',
-        entityType: 'task',
-        entityId: task.id,
-      }),
-      task.createdByUserId
-        ? this.notificationsService.create({
-            userId: task.createdByUserId,
-            organisationId: task.organisationId,
-            type: NotificationType.TASK_COMPLETED,
-            title: 'Cleanup task completed',
-            message: `"${task.title}" has been marked complete.`,
-            relatedEntityType: 'task',
-            relatedEntityId: task.id,
-          })
-        : Promise.resolve(),
-    ]);
+        type: NotificationType.TASK_COMPLETED,
+        title: 'Cleanup task completed',
+        message: `"${task.title}" has been marked complete.`,
+        relatedEntityType: 'task',
+        relatedEntityId: task.id,
+      });
+    }
 
     // SRS 3.1.21: once every sibling task on the parent incident is complete,
     // advance it per the Task Completion rule. This never blocks the task

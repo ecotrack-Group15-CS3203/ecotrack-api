@@ -107,18 +107,19 @@ export class NotificationsService {
     { page, limit }: PaginationQueryDto,
   ): Promise<Paginated<NotificationRow>> {
     const where = eq(notifications.userId, userId);
-    const [items, [{ count: total }]] = await Promise.all([
-      this.tenantDb.db.query.notifications.findMany({
-        where,
-        orderBy: desc(notifications.createdAt),
-        limit,
-        offset: (page - 1) * limit,
-      }),
-      this.tenantDb.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(notifications)
-        .where(where),
-    ]);
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const items = await this.tenantDb.db.query.notifications.findMany({
+      where,
+      orderBy: desc(notifications.createdAt),
+      limit,
+      offset: (page - 1) * limit,
+    });
+    const [{ count: total }] = await this.tenantDb.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(notifications)
+      .where(where);
     return { items, total, page, limit };
   }
 

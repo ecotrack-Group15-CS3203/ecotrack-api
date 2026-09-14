@@ -196,18 +196,19 @@ export class EventsService {
         )
       : eq(events.organisationId, organisationId);
 
-    const [rows, [{ count: total }]] = await Promise.all([
-      this.tenantDb.db.query.events.findMany({
-        where,
-        orderBy: asc(events.scheduledAt),
-        limit,
-        offset: (page - 1) * limit,
-      }),
-      this.tenantDb.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(events)
-        .where(where),
-    ]);
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const rows = await this.tenantDb.db.query.events.findMany({
+      where,
+      orderBy: asc(events.scheduledAt),
+      limit,
+      offset: (page - 1) * limit,
+    });
+    const [{ count: total }] = await this.tenantDb.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(events)
+      .where(where);
     if (rows.length === 0) return { items: [], total, page, limit };
 
     const mine = await this.tenantDb.db.query.eventRsvps.findMany({
@@ -237,23 +238,21 @@ export class EventsService {
       throw new NotFoundException('Event not found');
     }
 
-    const [links, rsvpRows] = await Promise.all([
-      this.tenantDb.db.query.eventIncidents.findMany({
-        where: eq(eventIncidents.eventId, id),
-      }),
-      this.tenantDb.db.query.eventRsvps.findMany({
-        where: eq(eventRsvps.eventId, id),
-      }),
-    ]);
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const links = await this.tenantDb.db.query.eventIncidents.findMany({
+      where: eq(eventIncidents.eventId, id),
+    });
+    const rsvpRows = await this.tenantDb.db.query.eventRsvps.findMany({
+      where: eq(eventRsvps.eventId, id),
+    });
 
     const incidentIds = links.map((l) => l.incidentId);
-    const linkedIncidents = incidentIds.length
-      ? await Promise.all(
-          incidentIds.map((incidentId) =>
-            this.incidentsService.findById(incidentId),
-          ),
-        )
-      : [];
+    const linkedIncidents: IncidentRow[] = [];
+    for (const incidentId of incidentIds) {
+      linkedIncidents.push(await this.incidentsService.findById(incidentId));
+    }
 
     const userIds = rsvpRows.map((r) => r.userId);
     const rsvpUsers = userIds.length

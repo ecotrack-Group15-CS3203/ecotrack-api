@@ -140,18 +140,19 @@ export class IncidentsService {
     Paginated<IncidentRow & { images: { id: string; url: string }[] }>
   > {
     const where = eq(incidents.reportedByUserId, reportedByUserId);
-    const [reports, [{ count: total }]] = await Promise.all([
-      this.tenantDb.db.query.incidents.findMany({
-        where,
-        orderBy: desc(incidents.createdAt),
-        limit,
-        offset: (page - 1) * limit,
-      }),
-      this.tenantDb.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(incidents)
-        .where(where),
-    ]);
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const reports = await this.tenantDb.db.query.incidents.findMany({
+      where,
+      orderBy: desc(incidents.createdAt),
+      limit,
+      offset: (page - 1) * limit,
+    });
+    const [{ count: total }] = await this.tenantDb.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(incidents)
+      .where(where);
     if (reports.length === 0) return { items: [], total, page, limit };
     const images = await this.tenantDb.db.query.incidentImages.findMany({
       where: inArray(
@@ -357,18 +358,19 @@ export class IncidentsService {
         )
       : eq(incidents.organisationId, organisationId);
 
-    const [items, [{ count: total }]] = await Promise.all([
-      this.tenantDb.db.query.incidents.findMany({
-        where,
-        orderBy: desc(incidents.createdAt),
-        limit,
-        offset: (page - 1) * limit,
-      }),
-      this.tenantDb.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(incidents)
-        .where(where),
-    ]);
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const items = await this.tenantDb.db.query.incidents.findMany({
+      where,
+      orderBy: desc(incidents.createdAt),
+      limit,
+      offset: (page - 1) * limit,
+    });
+    const [{ count: total }] = await this.tenantDb.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(incidents)
+      .where(where);
     return { items, total, page, limit };
   }
 
@@ -406,27 +408,29 @@ export class IncidentsService {
       .where(eq(incidents.id, incidentId))
       .returning();
 
-    await Promise.all([
-      this.auditLogService.record({
+    // Sequential, not Promise.all: both calls ultimately query tenantDb.db, one
+    // dedicated pg Client per request (TenantInterceptor), not a Pool —
+    // concurrent queries on it hit node-postgres's deprecated-and-scheduled-for-
+    // removal concurrent-query path.
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId,
+      action: 'incident.rejected',
+      entityType: 'incident',
+      entityId: incidentId,
+      metadata: { reason },
+    });
+    if (incident.reportedByUserId) {
+      await this.notificationsService.create({
+        userId: incident.reportedByUserId,
         organisationId,
-        actingUserId,
-        action: 'incident.rejected',
-        entityType: 'incident',
-        entityId: incidentId,
-        metadata: { reason },
-      }),
-      incident.reportedByUserId
-        ? this.notificationsService.create({
-            userId: incident.reportedByUserId,
-            organisationId,
-            type: NotificationType.INCIDENT_REJECTED,
-            title: 'Incident rejected',
-            message: `Your report "${incident.title}" was rejected: ${reason}`,
-            relatedEntityType: 'incident',
-            relatedEntityId: incidentId,
-          })
-        : Promise.resolve(),
-    ]);
+        type: NotificationType.INCIDENT_REJECTED,
+        title: 'Incident rejected',
+        message: `Your report "${incident.title}" was rejected: ${reason}`,
+        relatedEntityType: 'incident',
+        relatedEntityId: incidentId,
+      });
+    }
 
     return updated;
   }

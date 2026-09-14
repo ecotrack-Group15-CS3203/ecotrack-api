@@ -149,26 +149,28 @@ export class IncidentPoolService {
     }
     const claimed = result[0];
 
-    await Promise.all([
-      this.auditLogService.record({
+    // Sequential, not Promise.all: both calls ultimately query tenantDb.db, one
+    // dedicated pg Client per request (TenantInterceptor), not a Pool —
+    // concurrent queries on it hit node-postgres's deprecated-and-scheduled-for-
+    // removal concurrent-query path.
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId,
+      action: 'incident.claimed',
+      entityType: 'incident',
+      entityId: incidentId,
+    });
+    if (claimed.reportedByUserId) {
+      await this.notificationsService.create({
+        userId: claimed.reportedByUserId,
         organisationId,
-        actingUserId,
-        action: 'incident.claimed',
-        entityType: 'incident',
-        entityId: incidentId,
-      }),
-      claimed.reportedByUserId
-        ? this.notificationsService.create({
-            userId: claimed.reportedByUserId,
-            organisationId,
-            type: NotificationType.INCIDENT_CLAIMED,
-            title: 'Your report was claimed',
-            message: `"${claimed.title}" has been claimed and is being handled.`,
-            relatedEntityType: 'incident',
-            relatedEntityId: incidentId,
-          })
-        : Promise.resolve(),
-    ]);
+        type: NotificationType.INCIDENT_CLAIMED,
+        title: 'Your report was claimed',
+        message: `"${claimed.title}" has been claimed and is being handled.`,
+        relatedEntityType: 'incident',
+        relatedEntityId: incidentId,
+      });
+    }
 
     return claimed;
   }

@@ -257,32 +257,33 @@ export class OrganisationMembersService {
       UserRole.CITIZEN,
     );
 
-    await Promise.all([
-      this.auditLogService.record({
+    // Sequential, not Promise.all: both calls ultimately query tenantDb.db, one
+    // dedicated pg Client per request (TenantInterceptor), not a Pool —
+    // concurrent queries on it hit node-postgres's deprecated-and-scheduled-for-
+    // removal concurrent-query path.
+    await this.auditLogService.record({
+      organisationId,
+      actingUserId,
+      action: 'organisation.volunteer_removed',
+      entityType: 'user',
+      entityId: volunteerUserId,
+    });
+    await this.notificationsService.create(
+      {
+        userId: volunteerUserId,
+        // The real org id, not null: this insert runs through the acting
+        // admin's tenant-scoped session, and notifications_insert's WITH CHECK
+        // only allows organisation_id = current_tenant or user_id =
+        // current_user_id — by this point the volunteer's own membership has
+        // already been cleared, so neither branch would match a null here.
         organisationId,
-        actingUserId,
-        action: 'organisation.volunteer_removed',
-        entityType: 'user',
-        entityId: volunteerUserId,
-      }),
-      this.notificationsService.create(
-        {
-          userId: volunteerUserId,
-          // The real org id, not null: this insert runs through the acting
-          // admin's tenant-scoped session, and notifications_insert's WITH CHECK
-          // only allows organisation_id = current_tenant or user_id =
-          // current_user_id — by this point the volunteer's own membership has
-          // already been cleared, so neither branch would match a null here.
-          organisationId,
-          type: NotificationType.VOLUNTEER_REMOVED,
-          title: 'Membership ended',
-          message:
-            'Your volunteer membership with this organisation has ended.',
-          relatedEntityType: 'organisation',
-          relatedEntityId: organisationId,
-        },
-        this.tenantDb.db,
-      ),
-    ]);
+        type: NotificationType.VOLUNTEER_REMOVED,
+        title: 'Membership ended',
+        message: 'Your volunteer membership with this organisation has ended.',
+        relatedEntityType: 'organisation',
+        relatedEntityId: organisationId,
+      },
+      this.tenantDb.db,
+    );
   }
 }

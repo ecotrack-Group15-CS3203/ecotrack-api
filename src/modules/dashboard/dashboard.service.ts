@@ -28,69 +28,62 @@ export class DashboardService {
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const [
-      [{ totalIncidents }],
-      [{ claimedThisMonth }],
-      [{ resolvedIncidents }],
-      [{ activeVolunteers }],
-      [{ completedCleanupTasks }],
-      categoryBreakdown,
-      org,
-    ] = await Promise.all([
-      this.tenantDb.db
-        .select({ totalIncidents: count() })
-        .from(incidents)
-        .where(eq(incidents.organisationId, organisationId)),
-      this.tenantDb.db
-        .select({ claimedThisMonth: count() })
-        .from(incidents)
-        .where(
-          and(
-            eq(incidents.organisationId, organisationId),
-            gte(incidents.claimedAt, startOfMonth),
-          ),
+    // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
+    // request (TenantInterceptor), not a Pool — concurrent queries on it hit
+    // node-postgres's deprecated-and-scheduled-for-removal concurrent-query path.
+    const [{ totalIncidents }] = await this.tenantDb.db
+      .select({ totalIncidents: count() })
+      .from(incidents)
+      .where(eq(incidents.organisationId, organisationId));
+    const [{ claimedThisMonth }] = await this.tenantDb.db
+      .select({ claimedThisMonth: count() })
+      .from(incidents)
+      .where(
+        and(
+          eq(incidents.organisationId, organisationId),
+          gte(incidents.claimedAt, startOfMonth),
         ),
-      this.tenantDb.db
-        .select({ resolvedIncidents: count() })
-        .from(incidents)
-        .innerJoin(
-          workflowStages,
-          eq(incidents.currentStageId, workflowStages.id),
-        )
-        .where(
-          and(
-            eq(incidents.organisationId, organisationId),
-            eq(workflowStages.isFinal, true),
-          ),
+      );
+    const [{ resolvedIncidents }] = await this.tenantDb.db
+      .select({ resolvedIncidents: count() })
+      .from(incidents)
+      .innerJoin(
+        workflowStages,
+        eq(incidents.currentStageId, workflowStages.id),
+      )
+      .where(
+        and(
+          eq(incidents.organisationId, organisationId),
+          eq(workflowStages.isFinal, true),
         ),
-      this.tenantDb.db
-        .select({ activeVolunteers: count() })
-        .from(users)
-        .where(
-          and(
-            eq(users.organisationId, organisationId),
-            eq(users.role, UserRole.VOLUNTEER),
-            eq(users.isActive, true),
-          ),
+      );
+    const [{ activeVolunteers }] = await this.tenantDb.db
+      .select({ activeVolunteers: count() })
+      .from(users)
+      .where(
+        and(
+          eq(users.organisationId, organisationId),
+          eq(users.role, UserRole.VOLUNTEER),
+          eq(users.isActive, true),
         ),
-      this.tenantDb.db
-        .select({ completedCleanupTasks: count() })
-        .from(tasks)
-        .where(
-          and(
-            eq(tasks.organisationId, organisationId),
-            eq(tasks.status, TaskStatus.COMPLETED),
-          ),
+      );
+    const [{ completedCleanupTasks }] = await this.tenantDb.db
+      .select({ completedCleanupTasks: count() })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.organisationId, organisationId),
+          eq(tasks.status, TaskStatus.COMPLETED),
         ),
-      this.tenantDb.db
-        .select({ category: incidents.category, count: count() })
-        .from(incidents)
-        .where(eq(incidents.organisationId, organisationId))
-        .groupBy(incidents.category),
-      this.tenantDb.db.query.organisations.findFirst({
-        where: eq(organisations.id, organisationId),
-      }),
-    ]);
+      );
+    const categoryBreakdown = await this.tenantDb.db
+      .select({ category: incidents.category, count: count() })
+      .from(incidents)
+      .where(eq(incidents.organisationId, organisationId))
+      .groupBy(incidents.category);
+    const org = await this.tenantDb.db.query.organisations.findFirst({
+      where: eq(organisations.id, organisationId),
+    });
 
     let awaitingClaimInServiceArea = 0;
     if (org?.serviceAreaCenter && org.serviceAreaRadiusKm) {
