@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+uploads
+temp_docs
+.git
+.github
+.env
+.env.*
+!.env.example
+*.pem
+test
