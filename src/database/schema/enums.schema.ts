@@ -61,6 +61,9 @@ export const notificationTypeEnum = pgEnum('notification_type', [
   'join_request_approved',
   'join_request_rejected',
   'event_cancelled',
+  'incident_proximity',
+  'task_due_reminder',
+  'event_reminder',
 ]);
 
 export const joinRequestStatusEnum = pgEnum('join_request_status', [

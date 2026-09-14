@@ -27,6 +27,7 @@ import {
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { IncidentsService } from '../incidents/incidents.service';
+import { NotificationDispatchRepository } from '../notifications/dispatch/notification-dispatch.repository';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OrganisationMembersService } from '../organisations/organisation-members.service';
 import { WorkflowStageRulesService } from '../workflow/workflow-stage-rules.service';
@@ -67,10 +68,37 @@ export class TasksService {
     private readonly incidentsService: IncidentsService,
     private readonly membersService: OrganisationMembersService,
     private readonly notificationsService: NotificationsService,
+    private readonly notificationDispatchRepository: NotificationDispatchRepository,
     private readonly auditLogService: AuditLogService,
     private readonly workflowStagesService: WorkflowStagesService,
     private readonly workflowStageRulesService: WorkflowStageRulesService,
   ) {}
+
+  /**
+   * SRS 3.1.8: 24h-before-dueDate reminder — see NotificationDispatchService. A
+   * task due less than 24h out has already missed the moment a "due tomorrow"
+   * reminder describes; scheduling one anyway would just fire it almost
+   * immediately, which isn't the same notification.
+   */
+  private scheduleDueReminder(taskId: string, dueDate: Date): Promise<void> {
+    const dueAt = new Date(dueDate.getTime() - 24 * 60 * 60 * 1000);
+    if (dueAt <= new Date()) return Promise.resolve();
+    return this.notificationDispatchRepository.schedule(
+      this.tenantDb.db,
+      'task_due_reminder',
+      'task',
+      taskId,
+      dueAt,
+    );
+  }
+
+  private cancelDueReminder(taskId: string): Promise<void> {
+    return this.notificationDispatchRepository.cancel(
+      this.tenantDb.db,
+      'task_due_reminder',
+      taskId,
+    );
+  }
 
   /**
    * The `verificationStatus === APPROVED` check stays: it's coarser than, and not
@@ -126,6 +154,8 @@ export class TasksService {
       taskId: saved.id,
       volunteerUserId: dto.assignedTo,
     });
+
+    await this.scheduleDueReminder(saved.id, saved.dueDate);
 
     await Promise.all([
       this.auditLogService.record({
@@ -191,6 +221,10 @@ export class TasksService {
       })
       .where(eq(tasks.id, taskId))
       .returning();
+
+    if (scheduleChanged) {
+      await this.scheduleDueReminder(taskId, updated.dueDate);
+    }
 
     if (scheduleChanged || priorityChanged) {
       // Only the currently active assignee(s) — with a single assignee per task
@@ -709,6 +743,8 @@ export class TasksService {
         updatedAt: new Date(),
       })
       .where(eq(tasks.id, taskId));
+
+    await this.cancelDueReminder(taskId);
 
     await Promise.all([
       this.auditLogService.record({

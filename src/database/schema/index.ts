@@ -10,4 +10,5 @@ export * from './workflow-stage-rules.schema';
 export * from './incidents.schema';
 export * from './tasks.schema';
 export * from './notifications.schema';
+export * from './notification-dispatches.schema';
 export * from './audit.schema';

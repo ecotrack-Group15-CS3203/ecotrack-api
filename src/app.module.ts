@@ -1,6 +1,7 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
@@ -36,6 +37,11 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
     // database/tenant-db.service.ts). `mount: true` sets up the CLS context at the
     // Express middleware layer, before guards/interceptors run.
     ClsModule.forRoot({ middleware: { mount: true }, global: true }),
+    // Backs NotificationDispatchService's @Cron (notifications/dispatch/) — the
+    // single scheduler for proximity alerts, task-due, and event reminders. No
+    // Redis/queue involved (Appendix C excludes both); see that service's header
+    // comment for why a plain outbox table is the right size for this deployment.
+    ScheduleModule.forRoot(),
     DrizzleModule,
     LoggerModule.forRoot({
       pinoHttp: {

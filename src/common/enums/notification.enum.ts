@@ -10,4 +10,11 @@ export enum NotificationType {
   JOIN_REQUEST_APPROVED = 'join_request_approved',
   JOIN_REQUEST_REJECTED = 'join_request_rejected',
   EVENT_CANCELLED = 'event_cancelled',
+  /** SRS 3.1.4 — an incident was reported within a user's configured alert radius
+   * and at or above their configured urgency threshold. */
+  INCIDENT_PROXIMITY = 'incident_proximity',
+  /** SRS 3.1.8 — sent 24h before a task's dueDate. */
+  TASK_DUE_REMINDER = 'task_due_reminder',
+  /** SRS 3.1.9 — sent 24h before an event's scheduledAt, to everyone RSVPed. */
+  EVENT_REMINDER = 'event_reminder',
 }

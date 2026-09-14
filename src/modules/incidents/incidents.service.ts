@@ -16,7 +16,11 @@ import {
   IncidentCategory,
   VerificationStatus,
 } from '../../common/enums/incident.enum';
-import { incidentImages, incidents } from '../../database/schema';
+import {
+  incidentImages,
+  incidents,
+  notificationDispatches,
+} from '../../database/schema';
 import { toGeographyPoint } from '../../database/schema/columns.helpers';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -113,6 +117,17 @@ export class IncidentsService {
       action: 'incident.reported',
       entityType: 'incident',
       entityId: saved.id,
+    });
+
+    // Outbox, not a fire-and-forget push here: this write is transactional with
+    // the incident row above, so a rollback takes the dispatch with it, and the
+    // 15s-cadence cron (NotificationDispatchService) does the actual proximity
+    // matching and fan-out afterwards, outside this request. See SRS 3.1.4.
+    await this.tenantDb.db.insert(notificationDispatches).values({
+      kind: 'incident_proximity',
+      entityType: 'incident',
+      entityId: saved.id,
+      dueAt: new Date(),
     });
 
     return this.findById(saved.id);

@@ -21,6 +21,7 @@ import {
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { IncidentRow, IncidentsService } from '../incidents/incidents.service';
+import { NotificationDispatchRepository } from '../notifications/dispatch/notification-dispatch.repository';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WorkflowStageRulesService } from '../workflow/workflow-stage-rules.service';
 import {
@@ -58,7 +59,29 @@ export class EventsService {
     private readonly workflowStagesService: WorkflowStagesService,
     private readonly workflowStageRulesService: WorkflowStageRulesService,
     private readonly notificationsService: NotificationsService,
+    private readonly notificationDispatchRepository: NotificationDispatchRepository,
   ) {}
+
+  /** SRS 3.1.9: 24h-before-scheduledAt reminder — see NotificationDispatchService. */
+  private scheduleReminder(eventId: string, scheduledAt: Date): Promise<void> {
+    const dueAt = new Date(scheduledAt.getTime() - 24 * 60 * 60 * 1000);
+    if (dueAt <= new Date()) return Promise.resolve();
+    return this.notificationDispatchRepository.schedule(
+      this.tenantDb.db,
+      'event_reminder',
+      'event',
+      eventId,
+      dueAt,
+    );
+  }
+
+  private cancelReminder(eventId: string): Promise<void> {
+    return this.notificationDispatchRepository.cancel(
+      this.tenantDb.db,
+      'event_reminder',
+      eventId,
+    );
+  }
 
   /**
    * Mirrors TasksService.create()'s precondition shape exactly: the
@@ -123,6 +146,8 @@ export class EventsService {
         incidentId,
       })),
     );
+
+    await this.scheduleReminder(saved.id, saved.scheduledAt);
 
     await this.auditLogService.record({
       organisationId,
@@ -296,6 +321,8 @@ export class EventsService {
     });
 
     if (status === 'cancelled') {
+      await this.cancelReminder(eventId);
+
       const rsvps = await this.tenantDb.db.query.eventRsvps.findMany({
         where: eq(eventRsvps.eventId, eventId),
       });
