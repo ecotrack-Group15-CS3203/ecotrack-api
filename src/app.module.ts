@@ -22,6 +22,7 @@ import { MediaModule } from './modules/media/media.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OrganisationsModule } from './modules/organisations/organisations.module';
+import { PublicStatsModule } from './modules/public-stats/public-stats.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { UsersModule } from './modules/users/users.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
@@ -70,6 +71,7 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
     AuthModule,
     HealthModule,
     MediaModule,
+    PublicStatsModule,
   ],
   controllers: [AppController],
   providers: [
