@@ -7,6 +7,10 @@ export const envValidationSchema = Joi.object({
     .default('development'),
   // 4000 is the mobile client's expected default (EXPO_PUBLIC_API_BASE_URL).
   PORT: Joi.number().default(4000),
+  /** pino level for the request log; the e2e suites set `silent`. */
+  LOG_LEVEL: Joi.string()
+    .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent')
+    .optional(),
   /**
    * Express `trust proxy`. Set to 1 behind a single reverse proxy (Nginx on the same
    * host), so rate limiting keys on the caller's real IP instead of the proxy's.

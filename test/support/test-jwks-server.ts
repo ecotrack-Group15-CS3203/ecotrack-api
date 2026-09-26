@@ -20,13 +20,22 @@ import type { AddressInfo } from 'net';
  */
 export interface TestJwksServer {
   issuer: string;
-  mintToken(claims: {
-    sub: string;
-    email: string;
-    name?: string;
-    expiresInSeconds?: number;
-  }): string;
+  mintToken(claims: MintClaims): string;
   close(): Promise<void>;
+}
+
+export interface MintClaims {
+  sub: string;
+  /** Omitted only by tests that exercise the missing-email rejection. */
+  email?: string;
+  name?: string;
+  expiresInSeconds?: number;
+  /**
+   * Merged over the standard payload last, so a test can forge any claim —
+   * a foreign `iss`, an `exp` beyond the allowed lifetime, a stray `role` —
+   * while still producing a token this server's key genuinely signed.
+   */
+  overrides?: Record<string, unknown>;
 }
 
 const KID = 'test-key-1';
@@ -58,12 +67,7 @@ export async function startTestJwksServer(): Promise<TestJwksServer> {
   const { port } = server.address() as AddressInfo;
   const issuer = `http://127.0.0.1:${port}`;
 
-  function mintToken(claims: {
-    sub: string;
-    email: string;
-    name?: string;
-    expiresInSeconds?: number;
-  }): string {
+  function mintToken(claims: MintClaims): string {
     const now = Math.floor(Date.now() / 1000);
     const header = { alg: 'RS256', typ: 'JWT', kid: KID };
     const payload = {
@@ -73,6 +77,7 @@ export async function startTestJwksServer(): Promise<TestJwksServer> {
       iss: issuer,
       iat: now,
       exp: now + (claims.expiresInSeconds ?? 3600),
+      ...claims.overrides,
     };
     const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
     const signature = crypto
