@@ -4,6 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import * as jwksRsa from 'jwks-rsa';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { UserRole } from '../../../common/enums/user-role.enum';
+import { TOKEN_INVALID } from '../../../common/guards/jwt-auth.guard';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-request.interface';
 import { UsersService } from '../../users/users.service';
 import { AsgardeoJwtPayload } from '../interfaces/jwt-payload.interface';
@@ -16,6 +17,15 @@ function parseAudience(raw: string | undefined): string[] | undefined {
     .filter(Boolean);
   return audience.length ? audience : undefined;
 }
+
+/**
+ * SRS 3.4.6: access tokens live at most one hour. Asgardeo's "User access token
+ * expiry time" is 3600 s on both the web and mobile applications, so this only
+ * rejects tokens that were minted outside that configuration.
+ */
+export const MAX_ACCESS_TOKEN_LIFETIME_SECONDS = 3600;
+/** Allowance for clock differences between Asgardeo and this server. */
+const LIFETIME_SKEW_SECONDS = 60;
 
 /**
  * Validates every protected request's access token against Asgardeo's live JWKS
@@ -53,6 +63,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: AsgardeoJwtPayload): Promise<AuthenticatedUser> {
+    // passport-jwt already rejects an `exp` in the past, but nothing caps how far in
+    // the future it may be — a token signed for a day would otherwise work for a day.
+    // Checked before provisioning, so a rejected token never creates a `users` row.
+    // Without `iat`, the lifetime is measured from now instead.
+    const issuedAt = payload.iat ?? Math.floor(Date.now() / 1000);
+    if (
+      payload.exp - issuedAt >
+      MAX_ACCESS_TOKEN_LIFETIME_SECONDS + LIFETIME_SKEW_SECONDS
+    ) {
+      throw new UnauthorizedException({
+        statusCode: 401,
+        code: TOKEN_INVALID,
+        message: 'Access token lifetime exceeds the 1-hour maximum',
+      });
+    }
+
     // Asgardeo does not put `email` in an access token unless it is added to the
     // application's Access Token Attributes (not the User Attributes tab). Without
     // it, provisioning cannot satisfy
