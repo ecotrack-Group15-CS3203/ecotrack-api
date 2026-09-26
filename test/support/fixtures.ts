@@ -107,20 +107,31 @@ export class Fixtures {
     organisationId?: string | null;
     title?: string;
     location?: string;
+    /** NULL (the default) or 'approved' keeps it on the public map; anything else hides it. */
+    verificationStatus?: 'approved' | 'rejected' | 'duplicate' | null;
   }): Promise<string> {
     const { rows } = await this.db.query<{ id: string }>(
       `INSERT INTO incidents (organisation_id, reported_by_user_id, title, description,
-                              category, severity, location)
-       VALUES ($1, $2, $3, 'e2e fixture', 'other', 'low', $4)
+                              category, severity, location, verification_status)
+       VALUES ($1, $2, $3, 'e2e fixture', 'other', 'low', $4, $5)
        RETURNING id`,
       [
         opts.organisationId ?? null,
         opts.reporterId,
         opts.title ?? `${this.prefix} incident`,
         opts.location ?? COLOMBO,
+        opts.verificationStatus ?? null,
       ],
     );
     return rows[0].id;
+  }
+
+  /** Attaches a stored photo URL to an incident; removed with it by cleanup()'s cascade. */
+  async incidentImage(incidentId: string, url: string): Promise<void> {
+    await this.db.query(
+      `INSERT INTO incident_images (incident_id, url) VALUES ($1, $2)`,
+      [incidentId, url],
+    );
   }
 
   /**
