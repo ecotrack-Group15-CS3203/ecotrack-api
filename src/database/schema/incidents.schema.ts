@@ -38,6 +38,10 @@ export const incidents = pgTable('incidents', {
   category: incidentCategoryEnum('category').notNull(),
   severity: incidentSeverityEnum('severity').notNull(),
   location: geographyPoint('location').notNull(),
+  // Migration 0032 also adds generated `location_lat`/`location_lng` columns (plus
+  // an index) for the RLS-compatible bounding-box pre-filter in database/spatial.ts.
+  // Kept out of this schema on purpose: Postgres computes them, nothing writes
+  // them, and declaring them would add them to every ORM read of an incident.
   address: text('address'),
   /** null while pooled; set to 'approved' automatically on claim; see enums.schema.ts */
   verificationStatus: verificationStatusEnum('verification_status'),

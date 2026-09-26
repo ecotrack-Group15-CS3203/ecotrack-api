@@ -9,6 +9,7 @@ import { eq, sql } from 'drizzle-orm';
 import { NotificationType } from '../../common/enums/notification.enum';
 import { incidents, organisations } from '../../database/schema';
 import { toGeographyPoint } from '../../database/schema/columns.helpers';
+import { withinBoundingBox } from '../../database/spatial';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -38,9 +39,10 @@ export class IncidentPoolService {
   ) {}
 
   /**
-   * Unclaimed incidents within the given org's service area, nearest first. Uses
-   * ST_DWithin against the pre-built GiST index (incidents_location_gist) — see
-   * SRS 3.4.1's p95<=500ms performance target, the reason that index exists at all.
+   * Unclaimed incidents within the given org's service area, nearest first. The
+   * bounding-box pre-filter is what makes this indexable under RLS (see migration
+   * 0032 — the GiST index on `location` is unusable here); ST_DWithin then applies
+   * the exact radius. SRS 3.4.1's p95<=500ms target is why this matters.
    */
   async listPool(organisationId: string): Promise<PoolIncidentRow[]> {
     const org = await this.tenantDb.db.query.organisations.findFirst({
@@ -67,6 +69,7 @@ export class IncidentPoolService {
         ST_Distance(location, ${centerEwkt}::geography) AS "distanceMeters"
       FROM incidents
       WHERE organisation_id IS NULL
+        AND ${withinBoundingBox(org.serviceAreaCenter.lat, org.serviceAreaCenter.lng, org.serviceAreaRadiusKm * 1000)}
         AND ST_DWithin(location, ${centerEwkt}::geography, ${org.serviceAreaRadiusKm * 1000})
       ORDER BY "distanceMeters" ASC
     `);
