@@ -71,5 +71,11 @@ export function buildPgPoolConfig(
       : read(lookup, 'DB_PASSWORD'),
     database: read(lookup, 'DB_NAME'),
     ssl: buildSslOptions(lookup),
+    // Fail a pool checkout after 5 s instead of waiting forever. Every request
+    // already holds one pooled connection (TenantInterceptor); any code path that
+    // takes a second one can exhaust the pool under load, and without a timeout the
+    // API then hangs until restarted. With it, the stuck requests error out, release
+    // their connections, and the API recovers.
+    connectionTimeoutMillis: 5000,
   };
 }
