@@ -146,6 +146,36 @@ describe('Input validation & injection prevention (e2e)', () => {
     });
   });
 
+  describe('body formats', () => {
+    it('does not parse form-encoded bodies, so a valid report sent as a form is refused', async () => {
+      const res = await request(t.server)
+        .post('/incidents')
+        .set('Authorization', `Bearer ${citizen.token}`)
+        .type('form')
+        .send(
+          'title=Form%20report&urgency=high&location[lat]=6.92&location[lng]=79.86' +
+            '&mediaUrls[0]=http%3A%2F%2Fstore.test%2Fbucket%2Fphoto.jpg',
+        );
+      expectReadable400(res, /title/);
+
+      const { rowCount } = await fx.db.query(
+        `SELECT 1 FROM incidents WHERE title = 'Form report' AND reported_by_user_id = $1`,
+        [citizen.id],
+      );
+      expect(rowCount).toBe(0);
+    });
+
+    it('answers malformed JSON with a readable 400', async () => {
+      const res = await request(t.server)
+        .post('/incidents')
+        .set('Authorization', `Bearer ${citizen.token}`)
+        .set('Content-Type', 'application/json')
+        .send('{"title": ');
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body)).not.toMatch(/node_modules|at \w+ \(/);
+    });
+  });
+
   describe('query parameters', () => {
     it('accepts a valid nearby query', async () => {
       const res = await get('/incidents/nearby?lat=6.9271&lng=79.8612');

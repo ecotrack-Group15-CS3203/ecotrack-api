@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import type { App } from 'supertest/types';
+import { NEST_APP_OPTIONS, registerBodyParsers } from '../../src/body-parsing';
 import { startTestJwksServer, TestJwksServer } from './test-jwks-server';
 
 /**
@@ -14,6 +15,8 @@ import { startTestJwksServer, TestJwksServer } from './test-jwks-server';
  * required, because JwtStrategy reads both once, in its constructor. close()
  * restores the original values, since every e2e spec shares one --runInBand
  * process.
+ *
+ * Body parsing is configured exactly as main.ts does it (src/body-parsing.ts).
  *
  * Note: unlike main.ts this does not set the `v1` global prefix, so routes are
  * requested as `/incidents/...`, not `/v1/incidents/...`.
@@ -46,7 +49,11 @@ export async function createTestApp(options?: {
   if (options?.configure) builder = options.configure(builder);
   const moduleFixture = await builder.compile();
 
-  const app = moduleFixture.createNestApplication<INestApplication<App>>();
+  const app =
+    moduleFixture.createNestApplication<INestApplication<App>>(
+      NEST_APP_OPTIONS,
+    );
+  registerBodyParsers(app);
   await app.init();
 
   return {
