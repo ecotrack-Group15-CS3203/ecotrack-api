@@ -28,7 +28,9 @@ async function main() {
   const pool = new Pool(
     buildPgPoolConfig((k) => process.env[k], { migrator: true }),
   );
-  const q = (text: string, values?: unknown[]) => pool.query(text, values);
+  // Every query here returns (a subset of) these columns.
+  type Row = { id: string; position: number; n: number };
+  const q = (text: string, values?: unknown[]) => pool.query<Row>(text, values);
   try {
     await q('BEGIN');
     const org = await q(
@@ -57,7 +59,7 @@ async function main() {
        RETURNING id, position`,
       [orgId],
     );
-    const claimedStage = stage.rows.find((r) => r.position === 1).id as string;
+    const claimedStage = stage.rows.find((r) => r.position === 1)!.id;
 
     // Uniform over Sri Lanka's bounding box (lat 5.9-9.9, lng 79.7-81.9).
     await q(
