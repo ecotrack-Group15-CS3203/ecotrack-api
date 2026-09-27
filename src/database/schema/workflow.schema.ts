@@ -30,6 +30,8 @@ export const workflowStages = pgTable(
     isFinal: boolean('is_final').notNull().default(false),
   },
   (t) => [
+    // DEFERRABLE INITIALLY DEFERRED in the database (migration 0033); drizzle's
+    // unique() cannot express that, so the migration is the source of truth.
     unique('workflow_stages_org_position_unique').on(
       t.organisationId,
       t.position,
