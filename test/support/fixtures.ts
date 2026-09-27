@@ -69,6 +69,21 @@ export class Fixtures {
     return rows[0].id;
   }
 
+  /**
+   * The minimal workflow an org needs before its incidents can carry a stage: org
+   * registration seeds the defaults (WorkflowStagesService.seedDefaultStages), but
+   * fixture orgs are inserted directly. A claim moves an incident to position 1.
+   */
+  async workflowStages(organisationId: string): Promise<void> {
+    await this.db.query(
+      `INSERT INTO workflow_stages (organisation_id, name, slug, color, position, is_final)
+       VALUES ($1, 'Reported', 'reported', '#9ca3af', 0, false),
+              ($1, 'Claimed', 'claimed', '#3b82f6', 1, false),
+              ($1, 'Resolved', 'resolved', '#22c55e', 2, true)`,
+      [organisationId],
+    );
+  }
+
   async user(
     key: string,
     opts: {
