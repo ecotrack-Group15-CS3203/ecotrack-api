@@ -47,7 +47,7 @@ async function main() {
            VALUES ($1, $2, $1, $3, $4) RETURNING id`,
           [sub, `${sub}@e2e.test`, role, orgRef],
         )
-      ).rows[0].id as string;
+      ).rows[0].id;
     const adminId = await user(LOAD.adminSubject, 'org_admin', orgId);
     const reporterId = await user(LOAD.reporterSubject, 'citizen', null);
     const volunteerId = await user(LOAD.volunteerSubject, 'volunteer', orgId);
