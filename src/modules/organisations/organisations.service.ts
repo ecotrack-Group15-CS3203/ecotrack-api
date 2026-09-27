@@ -141,8 +141,12 @@ export class OrganisationsService {
 
     const whereClause = sql.join(conditions, sql` AND `);
 
-    const [result, countResult] = await Promise.all([
-      this.db.execute<PublicOrganisationRow>(sql`
+    // On the request's own connection, one query after the other. This used the
+    // pool (`this.db`) while TenantInterceptor already held a pooled connection for
+    // the request: with 10 concurrent searches every connection was held by a
+    // request waiting for another one, and the API deadlocked (found by the k6 load
+    // test). organisations carries no RLS, so the tenant connection sees the same rows.
+    const result = await this.tenantDb.db.execute<PublicOrganisationRow>(sql`
         SELECT
           o.id, o.name, o.slug, o.description, o.contact_email AS "contactEmail",
           o.service_area_radius_km AS "serviceAreaRadiusKm",
@@ -152,11 +156,10 @@ export class OrganisationsService {
         WHERE ${whereClause}
         ORDER BY ${point ? sql`"distanceMeters" ASC NULLS LAST,` : sql``} o.name ASC
         LIMIT ${limit} OFFSET ${(page - 1) * limit}
-      `),
-      this.db.execute<{ count: number }>(sql`
+      `);
+    const countResult = await this.tenantDb.db.execute<{ count: number }>(sql`
         SELECT count(*)::int AS count FROM organisations o WHERE ${whereClause}
-      `),
-    ]);
+      `);
     return {
       items: result.rows,
       total: countResult.rows[0].count,
