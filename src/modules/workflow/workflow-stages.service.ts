@@ -222,16 +222,18 @@ export class WorkflowStagesService {
         throw new BadRequestException(`Unknown stage id: ${id}`);
       }
     }
-    const updated = await Promise.all(
-      orderedStageIds.map((id, position) =>
-        this.tenantDb.db
-          .update(workflowStages)
-          .set({ position, updatedAt: new Date() })
-          .where(eq(workflowStages.id, id))
-          .returning()
-          .then(([row]) => row),
-      ),
-    );
+    // Sequential: tenantDb.db is one pg client per request, not a pool. Positions
+    // collide mid-way through a reorder; the unique constraint is deferred to commit
+    // (migration 0033), which sees only the finished order.
+    const updated: WorkflowStageRow[] = [];
+    for (const [position, id] of orderedStageIds.entries()) {
+      const [row] = await this.tenantDb.db
+        .update(workflowStages)
+        .set({ position, updatedAt: new Date() })
+        .where(eq(workflowStages.id, id))
+        .returning();
+      updated.push(row);
+    }
     await this.auditLogService.record({
       organisationId,
       actingUserId,
@@ -333,16 +335,14 @@ export class WorkflowStagesService {
       ),
       orderBy: asc(workflowStages.position),
     });
-    await Promise.all(
-      remaining.map((s, position) =>
-        position === s.position
-          ? Promise.resolve()
-          : this.tenantDb.db
-              .update(workflowStages)
-              .set({ position })
-              .where(eq(workflowStages.id, s.id)),
-      ),
-    );
+    // Sequential, like reorderStages(): one pg client per request.
+    for (const [position, s] of remaining.entries()) {
+      if (position === s.position) continue;
+      await this.tenantDb.db
+        .update(workflowStages)
+        .set({ position })
+        .where(eq(workflowStages.id, s.id));
+    }
 
     await this.auditLogService.record({
       organisationId: stage.organisationId,
