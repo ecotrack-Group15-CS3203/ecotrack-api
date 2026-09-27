@@ -22,6 +22,15 @@ env:
   DB_PASSWORD: ecotrack_app
   DB_MIGRATOR_USER: ecotrack
   DB_MIGRATOR_PASSWORD: ecotrack
+  # S3 stand-in for the integration job (s3mock below). Required by the app's config
+  # schema, so without these every suite that boots AppModule fails at startup.
+  # OIDC_* is not set here: the e2e harness points it at its own in-process JWKS.
+  S3_BUCKET: ecotrack-media
+  S3_ENDPOINT: http://localhost:9090
+  S3_FORCE_PATH_STYLE: 'true'
+  S3_PUBLIC_URL: http://localhost:9090/ecotrack-media
+  S3_ACCESS_KEY_ID: test
+  S3_SECRET_ACCESS_KEY: test
 
 jobs:
   lint-and-typecheck:
@@ -70,6 +79,16 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # MinIO (used by docker-compose.yml locally) no longer publishes images to
+      # Docker Hub. s3mock covers what the media suite needs; it does not verify
+      # request signatures, which is why that suite asserts on the signed headers
+      # instead of expecting a mismatched upload to be refused.
+      s3:
+        image: adobe/s3mock:latest
+        env:
+          initialBuckets: ecotrack-media
+        ports:
+          - 9090:9090
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v6

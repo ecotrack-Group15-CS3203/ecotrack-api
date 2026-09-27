@@ -46,6 +46,9 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
     DrizzleModule,
     LoggerModule.forRoot({
       pinoHttp: {
+        // `silent` in the e2e suites (test/support/e2e-env.ts), where a JSON line per
+        // request buries the test results.
+        level: process.env.LOG_LEVEL || 'info',
         customProps: (req) => ({
           requestId: (req as { id?: string }).id,
           organizationId:
