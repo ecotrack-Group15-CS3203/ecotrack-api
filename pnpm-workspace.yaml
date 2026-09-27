@@ -3,3 +3,13 @@ allowBuilds:
   # drizzle-kit bundles with esbuild; its postinstall links the platform binary.
   esbuild: true
   unrs-resolver: false
+
+# Security patches for transitive dependencies whose parents pin a vulnerable exact
+# version (pnpm audit, 2026-09). Each is a patch/minor bump within the same major.
+# Remove an entry once the parent ships the fix on its own — for multer and
+# js-yaml@5 that is the NestJS 12 upgrade (@nestjs/platform-express, @nestjs/swagger).
+overrides:
+  multer@<2.3.0: ^2.4.0
+  js-yaml@>=5 <5.2.2: ^5.4.2
+  js-yaml@>=3 <3.15.2: ^3.15.2
+  fast-uri@<3.1.6: ^3.1.6

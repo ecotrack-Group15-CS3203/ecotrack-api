@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { NEST_APP_OPTIONS, registerBodyParsers } from './body-parsing';
 
 /** Express accepts a hop count, a boolean, or a list of trusted addresses. */
 function parseTrustProxy(raw: string): number | boolean | string {
@@ -12,7 +13,11 @@ function parseTrustProxy(raw: string): number | boolean | string {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(
+    AppModule,
+    NEST_APP_OPTIONS,
+  );
+  registerBodyParsers(app);
   const config = app.get(ConfigService);
 
   // Behind Nginx every request arrives from 127.0.0.1. Without this, the throttled
