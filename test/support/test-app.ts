@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import type { App } from 'supertest/types';
 import { NEST_APP_OPTIONS, registerBodyParsers } from '../../src/body-parsing';
+import { registerSecurityHeaders } from '../../src/security-headers';
 import { startTestJwksServer, TestJwksServer } from './test-jwks-server';
 
 /**
@@ -16,7 +17,8 @@ import { startTestJwksServer, TestJwksServer } from './test-jwks-server';
  * restores the original values, since every e2e spec shares one --runInBand
  * process.
  *
- * Body parsing is configured exactly as main.ts does it (src/body-parsing.ts).
+ * Body parsing and security headers are configured exactly as main.ts does it
+ * (src/body-parsing.ts, src/security-headers.ts).
  *
  * Note: unlike main.ts this does not set the `v1` global prefix, so routes are
  * requested as `/incidents/...`, not `/v1/incidents/...`.
@@ -54,6 +56,7 @@ export async function createTestApp(options?: {
       NEST_APP_OPTIONS,
     );
   registerBodyParsers(app);
+  registerSecurityHeaders(app);
   await app.init();
 
   return {

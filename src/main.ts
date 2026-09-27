@@ -4,6 +4,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { NEST_APP_OPTIONS, registerBodyParsers } from './body-parsing';
+import { registerSecurityHeaders, SWAGGER_PATH } from './security-headers';
 
 /** Express accepts a hop count, a boolean, or a list of trusted addresses. */
 function parseTrustProxy(raw: string): number | boolean | string {
@@ -18,6 +19,7 @@ async function bootstrap() {
     NEST_APP_OPTIONS,
   );
   registerBodyParsers(app);
+  registerSecurityHeaders(app);
   const config = app.get(ConfigService);
 
   // Behind Nginx every request arrives from 127.0.0.1. Without this, the throttled
@@ -51,7 +53,7 @@ async function bootstrap() {
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
     .build();
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, swaggerDocument);
+  SwaggerModule.setup(SWAGGER_PATH, app, swaggerDocument);
 
   await app.listen(process.env.PORT ?? 4000);
 }
