@@ -1,0 +1,42 @@
+# OWASP ZAP baseline scan of the deployed site (security testing evidence).
+#
+# Baseline = spider + passive checks only: ZAP crawls the site and inspects the
+# responses (headers, cookies, disclosure), but sends no attack payloads, so it is
+# safe to point at production. An active scan would write junk into the live
+# database; run that against a local stack instead.
+#
+# Triggers: pushing the security/zap-scan branch, or "Run workflow" once this file
+# is on the default branch (GitHub only lists workflow_dispatch workflows from there).
+#
+# Output: the HTML/Markdown/JSON reports as the `zap_scan` artifact on the run, and a
+# "ZAP Scan Baseline Report" issue that later runs update with what changed.
+name: ZAP baseline scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: URL to scan
+        default: https://ecotrack.tech
+  push:
+    branches: [security/zap-scan]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  zap-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      # Lets the scan pick up .zap/rules.tsv if one is added to tune alerts.
+      - uses: actions/checkout@v5
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: ${{ inputs.target || 'https://ecotrack.tech' }}
+          # -j adds the AJAX spider: much of the dashboard is rendered client-side,
+          # so the plain spider alone would miss routes. -m 3: spider for 3 minutes.
+          cmd_options: -j -m 3
+          # Findings are reported, not treated as a build failure.
+          fail_action: false

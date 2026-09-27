@@ -225,6 +225,13 @@
       "when": 1789240800000,
       "tag": "0031_public_platform_stats",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789240900000,
+      "tag": "0032_incidents_bbox_prefilter",
+      "breakpoints": true
     }
   ]
 }

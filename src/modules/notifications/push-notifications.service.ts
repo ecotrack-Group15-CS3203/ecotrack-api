@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Expo as ExpoInstance, ExpoPushMessage } from 'expo-server-sdk';
+import { loadExpoSdk } from './expo-sdk.loader';
 
 type ExpoModule = typeof import('expo-server-sdk');
 
@@ -15,7 +16,8 @@ type ExpoModule = typeof import('expo-server-sdk');
  * transformIgnorePatterns. A dynamic import() is the standard Node interop
  * for a CJS-context caller depending on an ESM-only package, and it also
  * sidesteps Jest's static-analysis transform entirely (dynamic import is
- * just a function call syntactically).
+ * just a function call syntactically). The import() itself lives in
+ * expo-sdk.loader.ts so tests can mock it.
  */
 @Injectable()
 export class PushNotificationsService {
@@ -27,7 +29,7 @@ export class PushNotificationsService {
 
   private async getClient() {
     if (!this.client) {
-      const { Expo } = await import('expo-server-sdk');
+      const { Expo } = await loadExpoSdk();
       // Only required once "Enhanced push security" is enabled on the Expo
       // project; until then Expo accepts unauthenticated sends.
       const accessToken =

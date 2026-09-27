@@ -22,6 +22,7 @@ import {
   notificationDispatches,
 } from '../../database/schema';
 import { toGeographyPoint } from '../../database/schema/columns.helpers';
+import { withinBoundingBox } from '../../database/spatial';
 import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { MediaService } from '../media/media.service';
@@ -229,7 +230,8 @@ export class IncidentsService {
           LIMIT 1
         ) AS "thumbnailUrl"
       FROM incidents i
-      WHERE ST_DWithin(i.location, ${point}::geography, ${radiusMeters})
+      WHERE ${withinBoundingBox(lat, lng, radiusMeters, 'i')}
+        AND ST_DWithin(i.location, ${point}::geography, ${radiusMeters})
         AND (i.verification_status IS NULL OR i.verification_status = 'approved')
       ORDER BY "distanceMeters" ASC
       LIMIT ${limit}

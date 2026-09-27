@@ -10,6 +10,7 @@ import {
   workflowStages,
 } from '../../database/schema';
 import { toGeographyPoint } from '../../database/schema/columns.helpers';
+import { withinBoundingBox } from '../../database/spatial';
 import { TenantDbService } from '../../database/tenant-db.service';
 
 @Injectable()
@@ -101,6 +102,7 @@ export class DashboardService {
           SELECT count(*)::int AS "poolCount"
           FROM incidents
           WHERE organisation_id IS NULL
+            AND ${withinBoundingBox(org.serviceAreaCenter.lat, org.serviceAreaCenter.lng, org.serviceAreaRadiusKm * 1000)}
             AND ST_DWithin(location, ${centerEwkt}::geography, ${org.serviceAreaRadiusKm * 1000})
         `)
       ).rows;
