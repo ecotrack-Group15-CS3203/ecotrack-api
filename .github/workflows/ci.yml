@@ -101,3 +101,49 @@ jobs:
         run: pnpm db:migrate
       - name: Integration tests
         run: pnpm test:integration
+
+  # Runs on the self-hosted runner installed on the production EC2 instance (see
+  # docs/04-runbooks/ci-cd.md), not a GitHub-hosted one — this job's shell commands
+  # execute directly on that box. No SSH involved: the runner polls GitHub over an
+  # outbound connection, so EC2's inbound security group is unchanged.
+  deploy:
+    needs: [lint-and-typecheck, unit-tests, integration-tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: self-hosted
+    concurrency:
+      group: ecotrack-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build image
+        run: docker build -t ecotrack-api:${{ github.sha }} .
+
+      # Idempotent: an already-applied migration never runs twice. This also
+      # re-asserts the ecotrack_app role's password from DB_PASSWORD every deploy
+      # (see migrate.ts), so a rotated password takes effect on the next push.
+      - name: Run database migrations
+        run: |
+          docker run --rm --network ecotrack \
+            --env-file /etc/ecotrack/api.env --env-file /etc/ecotrack/migrator.env \
+            -v /etc/ecotrack/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro \
+            ecotrack-api:${{ github.sha }} node dist/database/migrate.js
+
+      # Stop-and-start, not blue-green: a few seconds of downtime per deploy,
+      # traded for far fewer moving parts on a single small instance.
+      - name: Restart the API container
+        run: |
+          docker rm -f ecotrack-api || true
+          docker run -d --name ecotrack-api --restart unless-stopped --network ecotrack \
+            -p 127.0.0.1:4000:4000 --env-file /etc/ecotrack/api.env \
+            -v /etc/ecotrack/rds-global-bundle.pem:/certs/rds-global-bundle.pem:ro \
+            ecotrack-api:${{ github.sha }}
+
+      - name: Health check
+        run: curl --fail --retry 8 --retry-delay 3 --retry-connrefused http://127.0.0.1:4000/v1/health
+
+      # Old images pile up on the instance's disk otherwise. 72h keeps the
+      # previous build or two around for a manual rollback.
+      - name: Prune old images
+        if: always()
+        run: docker image prune -f --filter "until=72h"
