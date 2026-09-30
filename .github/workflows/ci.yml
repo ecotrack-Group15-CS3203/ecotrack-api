@@ -140,7 +140,7 @@ jobs:
             ecotrack-api:${{ github.sha }}
 
       - name: Health check
-        run: curl --fail --retry 8 --retry-delay 3 --retry-connrefused http://127.0.0.1:4000/v1/health
+        run: curl --fail --retry 8 --retry-delay 3 --retry-all-errors http://127.0.0.1:4000/v1/health
 
       # Old images pile up on the instance's disk otherwise. 72h keeps the
       # previous build or two around for a manual rollback.
