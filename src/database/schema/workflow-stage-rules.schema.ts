@@ -12,9 +12,10 @@ import { workflowStages } from './workflow.schema';
  * fallback, not the actual guard — WorkflowStagesService.deleteStage() blocks
  * deleting a stage a rule still references with a 409 before it ever reaches here.
  *
- * A null `*_min_stage_id` means "no minimum enforced" (the trigger is allowed the
- * moment an incident is claimed, since every claimed incident already satisfies any
- * lower bound); a null `*_target_stage_id` means "Automatic" — WorkflowStageRulesService
+ * A non-null `*_min_stage_id` is the exact stage an incident must sit on for the
+ * trigger to fire (not a lower bound — the trigger's own auto-advance moves the
+ * incident off it, so at-or-past would allow repeats); a null one means any
+ * non-final stage qualifies. A null `*_target_stage_id` means "Automatic" — WorkflowStageRulesService
  * resolves it to the next stage by position at the moment the trigger fires, per SRS
  * 3.1.21's Auto-Advance Rules. The event_* columns are written and read from day one,
  * but stay inert until an Events module exists to fire those two triggers.

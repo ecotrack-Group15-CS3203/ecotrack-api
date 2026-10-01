@@ -27,6 +27,7 @@ import { TenantDbService } from '../../database/tenant-db.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { MediaService } from '../media/media.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { WorkflowStageRulesService } from '../workflow/workflow-stage-rules.service';
 import { WorkflowStagesService } from '../workflow/workflow-stages.service';
 import { CreateIncidentDto } from './dto/create-incident.dto';
 import { UpdateIncidentStageDto } from './dto/update-incident-stage.dto';
@@ -76,6 +77,7 @@ export class IncidentsService {
     private readonly auditLogService: AuditLogService,
     private readonly workflowStagesService: WorkflowStagesService,
     private readonly mediaService: MediaService,
+    private readonly workflowStageRulesService: WorkflowStageRulesService,
   ) {}
 
   /**
@@ -376,13 +378,27 @@ export class IncidentsService {
     organisationId: string,
     { page, limit }: PaginationQueryDto,
     status?: VerificationStatus,
+    eligibleFor?: 'taskCreation' | 'eventCreation',
   ): Promise<Paginated<IncidentRow>> {
-    const where = status
-      ? and(
-          eq(incidents.organisationId, organisationId),
-          eq(incidents.verificationStatus, status),
-        )
-      : eq(incidents.organisationId, organisationId);
+    const conditions = [eq(incidents.organisationId, organisationId)];
+    if (status) conditions.push(eq(incidents.verificationStatus, status));
+
+    // The Create Task / Create Event pickers: only claimed incidents sitting on a
+    // stage the Workflow Stage Rules allow the trigger from (see
+    // WorkflowStageRulesService.assertRequiredStage, which enforces the same on create).
+    if (eligibleFor) {
+      const stageIds =
+        await this.workflowStageRulesService.listEligibleStageIds(
+          organisationId,
+          eligibleFor,
+        );
+      if (stageIds.length === 0) return { items: [], total: 0, page, limit };
+      conditions.push(
+        eq(incidents.verificationStatus, VerificationStatus.APPROVED),
+        inArray(incidents.currentStageId, stageIds),
+      );
+    }
+    const where = and(...conditions);
 
     // Sequential, not Promise.all: tenantDb.db is one dedicated pg Client per
     // request (TenantInterceptor), not a Pool — concurrent queries on it hit

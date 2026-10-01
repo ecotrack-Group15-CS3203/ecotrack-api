@@ -7,6 +7,7 @@ import { createFakeDb, FakeDb } from '../../test-utils/fake-db';
 import { AuditLogService } from '../audit/audit-log.service';
 import { MediaService } from '../media/media.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { WorkflowStageRulesService } from '../workflow/workflow-stage-rules.service';
 import { WorkflowStagesService } from '../workflow/workflow-stages.service';
 import { IncidentsService } from './incidents.service';
 
@@ -40,6 +41,7 @@ describe('IncidentsService.updateStage', () => {
       audit as unknown as AuditLogService,
       stages as unknown as WorkflowStagesService,
       {} as MediaService,
+      {} as WorkflowStageRulesService,
     );
   });
 

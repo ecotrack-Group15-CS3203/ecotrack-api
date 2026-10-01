@@ -104,11 +104,11 @@ export class TasksService {
 
   /**
    * The `verificationStatus === APPROVED` check stays: it's coarser than, and not
-   * replaced by, the stage-minimum check below. A rejected/duplicate incident keeps
+   * replaced by, the required-stage check below. A rejected/duplicate incident keeps
    * organisationId set and can sit at any stage (including a high-position one, e.g.
    * Dismissed) — position alone can't tell "further along" from "further along AND
    * still active", so this guard against terminal verificationStatus values remains
-   * necessary regardless of what minimum stage an org configures.
+   * necessary regardless of what required stage an org configures.
    */
   async create(
     organisationId: string,
@@ -130,7 +130,7 @@ export class TasksService {
     const currentStage = await this.workflowStagesService.findById(
       incident.currentStageId,
     );
-    await this.workflowStageRulesService.assertMinimumStageReached(
+    await this.workflowStageRulesService.assertRequiredStage(
       organisationId,
       'taskCreation',
       currentStage,

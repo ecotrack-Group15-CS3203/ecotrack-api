@@ -44,6 +44,8 @@ const TRIGGER_LABEL: Record<'taskCreation' | 'eventCreation', string> = {
   eventCreation: 'an event',
 };
 
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 @Injectable()
 export class WorkflowStageRulesService {
   constructor(
@@ -129,25 +131,50 @@ export class WorkflowStageRulesService {
   }
 
   /**
-   * SRS 3.1.21's minimum-stage precondition for Task/Event Creation. A null minimum
-   * means no precondition is configured — every claimed incident already satisfies
-   * "no minimum", so the trigger is unconditionally allowed.
+   * SRS 3.1.21's stage precondition for Task/Event Creation. The incident must sit
+   * exactly on the configured stage, not merely at-or-past it: creating a task/event
+   * auto-advances the incident off that stage, so an at-or-past check would let the
+   * same incident spawn a second task/event. A final stage never qualifies. A null
+   * setting means no stage is required — any non-final stage is allowed.
    */
-  async assertMinimumStageReached(
+  async assertRequiredStage(
     organisationId: string,
     trigger: 'taskCreation' | 'eventCreation',
     currentStage: WorkflowStageRow,
   ): Promise<void> {
+    if (currentStage.isFinal) {
+      throw new UnprocessableEntityException(
+        `${capitalise(TRIGGER_LABEL[trigger])} cannot be created for an incident in a final stage ('${currentStage.name}').`,
+      );
+    }
+
     const rules = await this.getRules(organisationId);
     const minStageId = rules[MIN_STAGE_COLUMN[trigger]] as string | null;
     if (!minStageId) return;
 
-    const minStage = await this.workflowStagesService.findById(minStageId);
-    if (currentStage.position < minStage.position) {
+    const requiredStage = await this.workflowStagesService.findById(minStageId);
+    if (currentStage.id !== requiredStage.id) {
       throw new UnprocessableEntityException(
-        `This incident must reach the '${minStage.name}' stage before ${TRIGGER_LABEL[trigger]} can be created. It is currently at '${currentStage.name}'.`,
+        `This incident must be at the '${requiredStage.name}' stage to create ${TRIGGER_LABEL[trigger]}. It is currently at '${currentStage.name}'.`,
       );
     }
+  }
+
+  /**
+   * The stage ids an incident may currently sit on for `trigger` to be allowed —
+   * the list-side mirror of assertRequiredStage, used to filter the Create Task /
+   * Create Event incident pickers.
+   */
+  async listEligibleStageIds(
+    organisationId: string,
+    trigger: 'taskCreation' | 'eventCreation',
+  ): Promise<string[]> {
+    const rules = await this.getRules(organisationId);
+    const minStageId = rules[MIN_STAGE_COLUMN[trigger]] as string | null;
+    const stages = await this.workflowStagesService.listStages(organisationId);
+    return stages
+      .filter((s) => !s.isFinal && (!minStageId || s.id === minStageId))
+      .map((s) => s.id);
   }
 
   /**
