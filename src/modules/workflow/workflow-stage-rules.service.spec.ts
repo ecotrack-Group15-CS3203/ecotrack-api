@@ -8,7 +8,7 @@ import {
   WorkflowStagesService,
 } from './workflow-stages.service';
 
-/** SRS 3.1.21 / 3.1.13: minimum-stage gates and auto-advance targets. */
+/** SRS 3.1.21 / 3.1.13: required-stage gates and auto-advance targets. */
 const stage = (
   id: string,
   position: number,
@@ -77,8 +77,8 @@ describe('WorkflowStageRulesService', () => {
     });
   });
 
-  describe('assertMinimumStageReached', () => {
-    it('refuses to create a task before the incident reaches the minimum stage (422)', async () => {
+  describe('assertRequiredStage', () => {
+    it('refuses to create a task before the incident reaches the required stage (422)', async () => {
       fake.db.query.workflowStageRules.findFirst.mockResolvedValue(
         rules({ taskCreationMinStageId: 'claimed' }),
       );
@@ -87,49 +87,110 @@ describe('WorkflowStageRulesService', () => {
       );
 
       await expect(
-        service.assertMinimumStageReached(
+        service.assertRequiredStage(
           'org',
           'taskCreation',
           stage('reported', 0, { name: 'Reported' }),
         ),
       ).rejects.toThrow(
         new UnprocessableEntityException(
-          "This incident must reach the 'Claimed' stage before a task can be created. It is currently at 'Reported'.",
+          "This incident must be at the 'Claimed' stage to create a task. It is currently at 'Reported'.",
         ),
       );
     });
 
-    it('allows it at or beyond the minimum stage', async () => {
+    it('refuses once the incident has moved past the required stage, so one incident cannot spawn a second task/event', async () => {
+      fake.db.query.workflowStageRules.findFirst.mockResolvedValue(
+        rules({ eventCreationMinStageId: 'claimed' }),
+      );
+      stages.findById.mockResolvedValue(
+        stage('claimed', 1, { name: 'Claimed' }),
+      );
+      await expect(
+        service.assertRequiredStage(
+          'org',
+          'eventCreation',
+          stage('in-progress', 2, { name: 'In Progress' }),
+        ),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    });
+
+    it('allows it exactly at the required stage', async () => {
       fake.db.query.workflowStageRules.findFirst.mockResolvedValue(
         rules({ eventCreationMinStageId: 'claimed' }),
       );
       stages.findById.mockResolvedValue(stage('claimed', 1));
       await expect(
-        service.assertMinimumStageReached(
+        service.assertRequiredStage(
           'org',
           'eventCreation',
           stage('claimed', 1),
         ),
       ).resolves.toBeUndefined();
-      await expect(
-        service.assertMinimumStageReached(
-          'org',
-          'eventCreation',
-          stage('resolved', 2),
-        ),
-      ).resolves.toBeUndefined();
     });
 
-    it('allows anything when no minimum is configured', async () => {
+    it('refuses an incident in a final stage, even with no required stage configured', async () => {
       fake.db.query.workflowStageRules.findFirst.mockResolvedValue(rules());
       await expect(
-        service.assertMinimumStageReached(
+        service.assertRequiredStage(
+          'org',
+          'taskCreation',
+          stage('dismissed', 4, { name: 'Dismissed', isFinal: true }),
+        ),
+      ).rejects.toThrow(
+        new UnprocessableEntityException(
+          "A task cannot be created for an incident in a final stage ('Dismissed').",
+        ),
+      );
+    });
+
+    it('allows any non-final stage when no required stage is configured', async () => {
+      fake.db.query.workflowStageRules.findFirst.mockResolvedValue(rules());
+      await expect(
+        service.assertRequiredStage(
           'org',
           'taskCreation',
           stage('reported', 0),
         ),
       ).resolves.toBeUndefined();
       expect(stages.findById).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listEligibleStageIds', () => {
+    const orgStages = [
+      stage('reported', 0),
+      stage('claimed', 1),
+      stage('in-progress', 2),
+      stage('resolved', 3, { isFinal: true }),
+    ];
+
+    it('returns only the required stage', async () => {
+      fake.db.query.workflowStageRules.findFirst.mockResolvedValue(
+        rules({ taskCreationMinStageId: 'claimed' }),
+      );
+      stages.listStages.mockResolvedValue(orgStages);
+      await expect(
+        service.listEligibleStageIds('org', 'taskCreation'),
+      ).resolves.toEqual(['claimed']);
+    });
+
+    it('returns nothing when the required stage is itself final', async () => {
+      fake.db.query.workflowStageRules.findFirst.mockResolvedValue(
+        rules({ eventCreationMinStageId: 'resolved' }),
+      );
+      stages.listStages.mockResolvedValue(orgStages);
+      await expect(
+        service.listEligibleStageIds('org', 'eventCreation'),
+      ).resolves.toEqual([]);
+    });
+
+    it('returns every non-final stage when no required stage is configured', async () => {
+      fake.db.query.workflowStageRules.findFirst.mockResolvedValue(rules());
+      stages.listStages.mockResolvedValue(orgStages);
+      await expect(
+        service.listEligibleStageIds('org', 'taskCreation'),
+      ).resolves.toEqual(['reported', 'claimed', 'in-progress']);
     });
   });
 
