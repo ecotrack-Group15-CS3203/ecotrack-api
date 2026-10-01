@@ -6,7 +6,7 @@ import { IsOptional, IsUUID, ValidateIf } from 'class-validator';
  * distinct from an absent/undefined key which `@IsOptional` already lets through)
  * while still requiring a well-formed id for any non-null value.
  *
- * A null `*MinStageId` means "no minimum enforced"; a null `*TargetStageId` means
+ * A null `*MinStageId` means "no required stage" (any non-final stage); a null `*TargetStageId` means
  * "Automatic" (SRS 3.1.13's Workflow Stage Rules panel — both dropdowns default to
  * these). Existence/org-ownership of a non-null id is validated in the service, not
  * here, since it needs a DB lookup.

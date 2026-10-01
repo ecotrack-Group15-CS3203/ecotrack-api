@@ -40,6 +40,7 @@ export class OrgIncidentsController {
       organisationId,
       query,
       query.status,
+      query.eligibleFor,
     );
   }
 

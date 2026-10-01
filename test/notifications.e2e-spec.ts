@@ -182,19 +182,21 @@ describe('Notifications (e2e)', () => {
   });
 
   describe('notification preferences (SRS 3.1.8)', () => {
-    let claimedIncidentId: string;
+    let reporter: FixtureUser;
 
     beforeAll(async () => {
       await registerPushToken(volunteer);
-      const reporter = await fx.user('task-reporter');
-      claimedIncidentId = await claimNewReport(reporter);
+      reporter = await fx.user('task-reporter');
     });
 
+    // A fresh claimed incident per task: creating a task advances the incident off
+    // the required stage, so the same incident can't take a second one.
     const assignTask = async (title: string) => {
+      const incidentId = await claimNewReport(reporter);
       const res = await as(admin)
         .post(`/organisations/${org}/tasks`)
         .send({
-          incidentId: claimedIncidentId,
+          incidentId,
           title,
           assignedTo: volunteer.id,
           dueDate: new Date(Date.now() + 7 * 86_400_000).toISOString(),

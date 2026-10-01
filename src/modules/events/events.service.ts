@@ -85,7 +85,7 @@ export class EventsService {
 
   /**
    * Mirrors TasksService.create()'s precondition shape exactly: the
-   * verificationStatus guard stays alongside the stage-minimum check for the same
+   * verificationStatus guard stays alongside the required-stage check for the same
    * reason (a rejected/duplicate incident can sit at any position). Validates and
    * gathers every linked incident's current stage *before* writing anything, so a
    * failure on incident N doesn't leave a partially-linked event — the tenant
@@ -117,7 +117,7 @@ export class EventsService {
       const currentStage = await this.workflowStagesService.findById(
         incident.currentStageId,
       );
-      await this.workflowStageRulesService.assertMinimumStageReached(
+      await this.workflowStageRulesService.assertRequiredStage(
         organisationId,
         'eventCreation',
         currentStage,
